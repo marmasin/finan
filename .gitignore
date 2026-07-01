@@ -1,0 +1,28 @@
+# --- Osobni podaci: NIKAD ne uploadati u git ---
+financije_baza.json
+
+# --- Tajne / vjerodajnice: NIKAD u git ---
+.streamlit/secrets.toml
+*.json.key
+client_secret*.json
+service-account*.json
+token.json
+
+# --- Python virtualno okruženje ---
+.venv/
+venv/
+env/
+
+# --- Python cache ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- IDE / editor / alati ---
+.vscode/
+.idea/
+.claude/
+
+# --- OS smeće ---
+Thumbs.db
+.DS_Store

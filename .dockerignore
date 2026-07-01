@@ -1,0 +1,13 @@
+# Osobni podaci i lokalne stvari NE idu u kontejnersku sliku.
+financije_baza.json
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.git/
+.gitignore
+.vscode/
+.idea/
+.streamlit/secrets.toml
+*.md
