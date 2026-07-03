@@ -205,93 +205,120 @@ def redovi_sljedivosti(racuni, transakcije, danas, racun=None, buducnost=False):
     return redovi
 
 
-def render_metrike(racuni, stanja, stanja_danas=None):
-    """
-    Red metrika: svaki račun + RASPOLOŽIVO. Ako je zadan stanja_danas, uz svaku
-    vrijednost prikazuje se i Δ (razlika prema današnjem stanju). Bez klikanja
-    (koristi se za sažetak današnjeg stanja).
-    """
-    def _delta(vrijednost, osnova):
-        if stanja_danas is None:
-            return None
-        raz = vrijednost - osnova
-        return f"{logika.hrvatski_broj(raz)} €" if raz else None
+def tablica_stanja(racuni, stanja):
+    """Uredan popis {Račun, Stanje (EUR)} za prikaz u tablici (mobilno čisto)."""
+    return [
+        {"Račun": r, "Stanje (EUR)": logika.hrvatski_broj(stanja.get(r, 0.0))}
+        for r in racuni
+    ]
 
-    cols = st.columns(len(racuni) + 1)
-    for col, r in zip(cols, racuni):
-        vr = stanja.get(r, 0.0)
-        col.metric(
-            r,
-            f"{logika.hrvatski_broj(vr)} €",
-            delta=_delta(vr, (stanja_danas or {}).get(r, 0.0)),
-        )
-    total = sum(stanja.values())
-    cols[-1].metric(
-        "💰 RASPOLOŽIVO",
-        f"{logika.hrvatski_broj(total)} €",
-        delta=_delta(total, sum((stanja_danas or {}).values())),
+
+def render_unos(racuni, transakcije):
+    """Uređivljiva tablica stavki + gumb za spremanje (tab „Unos”)."""
+    st.caption(
+        "Uredi ćeliju · dodaj red (＋) za novu stavku (datum = danas) · označi i "
+        "obriši (🗑) · tip „Stanje” = snimka salda (poništava prijašnje stavke tog "
+        "računa). Zatim „Spremi promjene”."
     )
-
-
-# Posebna oznaka odabira za „RASPOLOŽIVO” (svi računi zajedno).
-UKUPNO = "__ukupno__"
-
-
-def render_stanja(state_key, racuni, transakcije, danas, stanja, buducnost,
-                  stanja_danas=None):
-    """
-    Red metrika s KLIKABILNIM naslovima (svaki račun + RASPOLOŽIVO). Klik na
-    naslov otvara/zatvara sljedivost tog računa ispod (toggle). Za buducnost=True
-    prikazuje Δ i buduće stavke; inače stavke do današnjeg dana.
-    """
-    def _delta(vrijednost, osnova):
-        if not (buducnost and stanja_danas is not None):
-            return None
-        raz = vrijednost - osnova
-        return f"{logika.hrvatski_broj(raz)} €" if raz else None
-
-    def _toggle(oznaka):
-        st.session_state[state_key] = (
-            None if st.session_state.get(state_key) == oznaka else oznaka
-        )
-
-    cols = st.columns(len(racuni) + 1)
-    for col, r in zip(cols, racuni):
-        vr = stanja.get(r, 0.0)
-        if col.button(r, key=f"{state_key}_btn_{r}", type="tertiary", width="stretch"):
-            _toggle(r)
-        col.metric(
-            r,
-            f"{logika.hrvatski_broj(vr)} €",
-            delta=_delta(vr, (stanja_danas or {}).get(r, 0.0)),
-            label_visibility="collapsed",
-        )
-
-    total = sum(stanja.values())
-    if cols[-1].button(
-        "💰 RASPOLOŽIVO", key=f"{state_key}_btn_ukupno", type="tertiary",
+    uredjeno = st.data_editor(
+        df_iz_transakcija(transakcije),
+        num_rows="dynamic",
+        hide_index=True,
         width="stretch",
-    ):
-        _toggle(UKUPNO)
-    cols[-1].metric(
-        "💰 RASPOLOŽIVO",
-        f"{logika.hrvatski_broj(total)} €",
-        delta=_delta(total, sum((stanja_danas or {}).values())),
-        label_visibility="collapsed",
+        key="editor_stavki",
+        column_order=["Datum", "Opis", "Tip", "Iznos", "Račun"],
+        column_config={
+            "Datum": st.column_config.DateColumn(
+                "Datum", format="DD.MM.YYYY", default=date.today(), required=True
+            ),
+            "Opis": st.column_config.TextColumn("Opis", required=True),
+            "Tip": st.column_config.SelectboxColumn(
+                "Tip",
+                options=list(logika.TIPOVI),
+                default=logika.RASHOD,
+                required=True,
+                help="„Stanje” = snimka salda računa: poništava prijašnje stavke tog računa.",
+            ),
+            "Iznos": st.column_config.NumberColumn(
+                "Iznos (EUR)",
+                min_value=0.01,
+                step=10.0,
+                format="localized",
+                required=True,
+                help="Zarez za decimale (npr. 743,00).",
+            ),
+            "Račun": st.column_config.SelectboxColumn(
+                "Račun / izvor",
+                options=list(racuni),
+                required=True,
+                help="Odaberi izvor. Nove izvore dodaj u „Upravljanje izvorima”.",
+            ),
+        },
     )
 
-    odabrani = st.session_state.get(state_key)
-    if odabrani:
-        racun = None if odabrani == UKUPNO else odabrani
-        redovi_dd = redovi_sljedivosti(
-            racuni, transakcije, danas, racun=racun, buducnost=buducnost
-        )
-        if redovi_dd:
-            st.dataframe(redovi_dd, hide_index=True, width="stretch")
+    if st.button("💾 Spremi promjene", type="primary", width="stretch"):
+        nove = []
+        greske = []
+        postojeci = [int(r["ID"]) for _, r in uredjeno.iterrows() if pd.notna(r["ID"])]
+        sljedeci = (max(postojeci) + 1) if postojeci else 1
+        novi_racuni = list(racuni)
+
+        for i, (_, row) in enumerate(uredjeno.iterrows(), start=1):
+            if red_je_prazan(row):
+                continue
+            try:
+                datum = datum_u_str(row["Datum"])
+                if datum is None:
+                    raise ValueError("Datum je obavezan.")
+                datum = logika.provjeri_datum(datum)
+
+                opis = str(row["Opis"] or "").strip()
+                if not opis:
+                    raise ValueError("Opis je obavezan.")
+
+                tip = str(row["Tip"])
+                if tip not in logika.TIPOVI:
+                    raise ValueError(f"Nepoznat tip: {tip}")
+
+                iznos = logika.provjeri_iznos(row["Iznos"])
+
+                racun = str(row["Račun"] or "").strip()
+                if not racun:
+                    raise ValueError("Račun je obavezan.")
+                if racun not in novi_racuni:
+                    novi_racuni.append(racun)
+
+                if pd.notna(row["ID"]):
+                    sid = int(row["ID"])
+                else:
+                    sid = sljedeci
+                    sljedeci += 1
+
+                nove.append(
+                    {
+                        "ID": sid,
+                        "Timeframe": logika.timeframe_iz_datuma(datum),
+                        "Datum": datum,
+                        "Opis": opis,
+                        "Tip": tip,
+                        "Iznos": iznos,
+                        "Račun": racun,
+                    }
+                )
+            except ValueError as e:
+                greske.append(f"Red {i}: {e}")
+
+        if greske:
+            st.warning(
+                "Promjene nisu spremljene — ispravi greške:\n\n"
+                + "\n".join(f"- {g}" for g in greske)
+            )
         else:
-            ime = "sve račune" if racun is None else f"„{racun}”"
-            kada = "budućih stavki" if buducnost else "stavki do danas"
-            st.info(f"Nema {kada} za {ime}.")
+            racuni = logika._sa_zasticenima(novi_racuni)
+            racuni = logika._sa_racunima_iz_transakcija(racuni, nove)
+            logika.spremi(racuni, nove)
+            st.success(f"Spremljeno · ukupno stavki: {len(nove)} · računa: {len(racuni)}")
+            st.rerun()
 
 
 # --- Učitavanje podataka (isti izvor kao CLI) --------------------------------
@@ -305,146 +332,98 @@ except IOError as e:
 # =============================================================================
 # GLAVNI PROSTOR
 # =============================================================================
-st.title("💶 Financijski menadžer — kontrola likvidnosti")
-st.caption(
-    "Web verzija · podaci i obračun dijele se s terminalskom verzijom (logika.py)"
-)
+st.title("💶 Financijski menadžer")
 
 redovi = logika.preracunaj_tablicu(racuni, transakcije)
 danas = date.today()
-
-# --- Sažetak: stanje na današnji dan -----------------------------------------
 stanja_danas = logika.stanja_po_racunima(racuni, transakcije, na_dan=danas)
-st.subheader(f"💰 Stanje na današnji dan · {danas.strftime('%d.%m.%Y')}")
-render_metrike(racuni, stanja_danas)
+stanja_buduce = logika.stanja_po_racunima(racuni, transakcije)
+zadnji_datum_str = logika.zadnja_stavka_datum(transakcije)
+ima_buducnost = bool(zadnji_datum_str and parsiraj_datum(zadnji_datum_str) > danas)
 
+# --- Hero: raspoloživo danas (+ buduće) --------------------------------------
+h1, h2 = st.columns(2)
+h1.metric(
+    f"💰 Danas · {danas.strftime('%d.%m.%Y')}",
+    f"{logika.hrvatski_broj(sum(stanja_danas.values()))} €",
+)
+if ima_buducnost:
+    razlika = sum(stanja_buduce.values()) - sum(stanja_danas.values())
+    h2.metric(
+        f"🔮 Buduće · {zadnji_datum_str}",
+        f"{logika.hrvatski_broj(sum(stanja_buduce.values()))} €",
+        delta=f"{logika.hrvatski_broj(razlika)} €" if razlika else None,
+    )
 
-# --- Uređivljiva tablica: sve akcije na jednom mjestu ------------------------
-st.subheader("✏️ Stavke — uredi izravno u tablici")
-st.caption(
-    "Uredi ćeliju · dodaj red (＋) za novu stavku (datum = danas) · označi i obriši (🗑) · "
-    "„Račun” biraš iz izbornika · tip „Stanje” = mjesečna snimka salda "
-    "(poništava prijašnje stavke tog računa). Zatim „Spremi promjene”."
+tab_danas, tab_buduce, tab_unos, tab_detalji = st.tabs(
+    ["📅 Danas", "🔮 Buduće", "✏️ Unos", "📊 Detalji"]
 )
 
-uredjeno = st.data_editor(
-    df_iz_transakcija(transakcije),
-    num_rows="dynamic",
-    hide_index=True,
-    width="stretch",
-    key="editor_stavki",
-    # ID se ne prikazuje (izostavljen iz column_order), ali ostaje u podacima
-    # radi prepoznavanja postojećih stavki pri spremanju.
-    column_order=["Datum", "Opis", "Tip", "Iznos", "Račun"],
-    column_config={
-        "Datum": st.column_config.DateColumn(
-            "Datum", format="DD.MM.YYYY", default=date.today(), required=True
-        ),
-        "Opis": st.column_config.TextColumn("Opis", required=True),
-        "Tip": st.column_config.SelectboxColumn(
-            "Tip",
-            options=list(logika.TIPOVI),
-            default=logika.RASHOD,
-            required=True,
-            help="„Stanje” = snimka salda računa: poništava prijašnje stavke tog računa.",
-        ),
-        "Iznos": st.column_config.NumberColumn(
-            "Iznos (EUR)",
-            min_value=0.01,
-            step=10.0,
-            format="localized",
-            required=True,
-            help="Zarez za decimale (npr. 743,00).",
-        ),
-        "Račun": st.column_config.SelectboxColumn(
-            "Račun / izvor",
-            options=list(racuni),
-            required=True,
-            help="Odaberi izvor. Nove izvore dodaj u „Upravljanje izvorima”.",
-        ),
-    },
-)
+# --- Tab: Danas --------------------------------------------------------------
+with tab_danas:
+    st.caption(f"Stanje po računima na {danas.strftime('%d.%m.%Y')}")
+    st.dataframe(
+        tablica_stanja(racuni, stanja_danas), hide_index=True, width="stretch"
+    )
+    st.metric(
+        "💰 RASPOLOŽIVO", f"{logika.hrvatski_broj(sum(stanja_danas.values()))} €"
+    )
 
-if st.button("💾 Spremi promjene", type="primary", width="stretch"):
-    nove = []
-    greske = []
-    # ID-evi postojećih redova → osnova za dodjelu ID-a novim redovima.
-    postojeci = [int(r["ID"]) for _, r in uredjeno.iterrows() if pd.notna(r["ID"])]
-    sljedeci = (max(postojeci) + 1) if postojeci else 1
-    # Kreni od trenutnih računa da se sačuvaju i oni bez transakcija.
-    novi_racuni = list(racuni)
-
-    for i, (_, row) in enumerate(uredjeno.iterrows(), start=1):
-        if red_je_prazan(row):
-            continue
-        try:
-            datum = datum_u_str(row["Datum"])
-            if datum is None:
-                raise ValueError("Datum je obavezan.")
-            datum = logika.provjeri_datum(datum)
-
-            opis = str(row["Opis"] or "").strip()
-            if not opis:
-                raise ValueError("Opis je obavezan.")
-
-            tip = str(row["Tip"])
-            if tip not in logika.TIPOVI:
-                raise ValueError(f"Nepoznat tip: {tip}")
-
-            iznos = logika.provjeri_iznos(row["Iznos"])
-
-            racun = str(row["Račun"] or "").strip()
-            if not racun:
-                raise ValueError("Račun je obavezan.")
-            if racun not in novi_racuni:
-                novi_racuni.append(racun)
-
-            if pd.notna(row["ID"]):
-                sid = int(row["ID"])
-            else:
-                sid = sljedeci
-                sljedeci += 1
-
-            nove.append(
-                {
-                    "ID": sid,
-                    "Timeframe": logika.timeframe_iz_datuma(datum),
-                    "Datum": datum,
-                    "Opis": opis,
-                    "Tip": tip,
-                    "Iznos": iznos,
-                    "Račun": racun,
-                }
+# --- Tab: Buduće -------------------------------------------------------------
+with tab_buduce:
+    if not ima_buducnost:
+        st.info("Nema unesenih stavki nakon današnjeg dana.")
+    else:
+        st.caption(
+            f"Projekcija na {zadnji_datum_str} · Δ = promjena u odnosu na danas. "
+            "Otvori račun za pripadajuće buduće stavke."
+        )
+        for r in racuni:
+            redovi_r = redovi_sljedivosti(
+                racuni, transakcije, danas, racun=r, buducnost=True
             )
-        except ValueError as e:
-            greske.append(f"Red {i}: {e}")
+            if not redovi_r:
+                continue  # račun bez budućih stavki se ne prikazuje
+            bud = stanja_buduce.get(r, 0.0)
+            raz = bud - stanja_danas.get(r, 0.0)
+            strelica = "▲" if raz > 0 else ("▼" if raz < 0 else "•")
+            with st.expander(
+                f"{r} · {logika.hrvatski_broj(bud)} € "
+                f"({strelica} {logika.hrvatski_broj(abs(raz))} €)"
+            ):
+                st.dataframe(redovi_r, hide_index=True, width="stretch")
 
-    if greske:
-        st.warning(
-            "Promjene nisu spremljene — ispravi greške:\n\n"
-            + "\n".join(f"- {g}" for g in greske)
+        ukupno = sum(stanja_buduce.values())
+        raz_uk = ukupno - sum(stanja_danas.values())
+        strelica_uk = "▲" if raz_uk >= 0 else "▼"
+        with st.expander(
+            f"💰 RASPOLOŽIVO · {logika.hrvatski_broj(ukupno)} € "
+            f"({strelica_uk} {logika.hrvatski_broj(abs(raz_uk))} €)"
+        ):
+            st.dataframe(
+                redovi_sljedivosti(
+                    racuni, transakcije, danas, racun=None, buducnost=True
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+
+# --- Tab: Unos ---------------------------------------------------------------
+with tab_unos:
+    render_unos(racuni, transakcije)
+
+# --- Tab: Detalji ------------------------------------------------------------
+with tab_detalji:
+    st.caption("Sljedivost: obračun stanja po svakoj pojedinoj stavci.")
+    if redovi:
+        st.dataframe(
+            redovi,
+            column_order=logika.stupci_tablice(racuni),
+            hide_index=True,
+            width="stretch",
         )
     else:
-        racuni = logika._sa_zasticenima(novi_racuni)
-        racuni = logika._sa_racunima_iz_transakcija(racuni, nove)
-        logika.spremi(racuni, nove)
-        st.success(f"Spremljeno · ukupno stavki: {len(nove)} · računa: {len(racuni)}")
-        st.rerun()
-
-
-# --- Buduće stanje na datum posljednje unesene stavke ------------------------
-zadnji_datum_str = logika.zadnja_stavka_datum(transakcije)
-if zadnji_datum_str and parsiraj_datum(zadnji_datum_str) > danas:
-    stanja_buduce = logika.stanja_po_racunima(racuni, transakcije)  # sve stavke = do kraja
-    st.subheader(f"🔮 Buduće stanje · na {zadnji_datum_str}")
-    st.caption(
-        "Projekcija salda nakon svih unesenih stavki (uključujući buduće datume). "
-        "Δ = promjena u odnosu na danas. Klikni na naziv računa za buduće stavke."
-    )
-    render_stanja(
-        "odabrani_buduci_racun", racuni, transakcije, danas, stanja_buduce,
-        buducnost=True, stanja_danas=stanja_danas,
-    )
+        st.info("Baza je prazna — dodaj prvi red u tabu „Unos”.")
 
 
 # --- Bočni izbornik: upravljanje izvorima/računima ---------------------------
@@ -486,18 +465,3 @@ with st.sidebar:
                 st.rerun()
             except ValueError as e:
                 st.warning(str(e))
-
-
-# --- Detalji (sklopivo) ------------------------------------------------------
-st.divider()
-
-with st.expander("📊 Tablica sljedivosti (obračun stanja po svakoj stavci)"):
-    if redovi:
-        st.dataframe(
-            redovi,
-            column_order=logika.stupci_tablice(racuni),
-            hide_index=True,
-            width="stretch",
-        )
-    else:
-        st.info("Baza je prazna — dodaj prvi red u tablici iznad.")
