@@ -33,7 +33,7 @@ TIPOVI = (PRIHOD, RASHOD, STANJE)
 
 # Zaštićeni (preddefinirani) izvori/računi – uvijek su dostupni u padajućem
 # izborniku i NE mogu se obrisati. Ostali (dodani od korisnika) se mogu brisati.
-ZASTICENI_RACUNI = ["Erste Tekući", "PBZ Žiro", "Gotovina", "Revolut", "Dugovanja drugih"]
+ZASTICENI_RACUNI = ["Erste Tekući", "PBZ Žiro", "Gotovina", "Revolut"]
 
 # Računi koji postoje pri prvom pokretanju (jednaki zaštićenima).
 POCETNI_RACUNI = list(ZASTICENI_RACUNI)
@@ -158,6 +158,30 @@ def kljuc_datuma(t):
         return (datetime.max, t["ID"])
 
 
+def _datum_stavke(t):
+    """ Datum stavke kao datetime.date; None ako je neispravan/nedostaje. """
+    try:
+        return datetime.strptime(t["Datum"], "%d.%m.%Y").date()
+    except (ValueError, KeyError):
+        return None
+
+
+def zadnja_stavka_datum(transakcije, tipovi=None):
+    """
+    Datum (DD.MM.YYYY) najkasnije stavke; opcionalno filtrirano po tipovima
+    (npr. (PRIHOD, RASHOD)). Vraća None ako nema valjanih stavki.
+    """
+    datumi = [
+        _datum_stavke(t)
+        for t in transakcije
+        if tipovi is None or t.get("Tip") in tipovi
+    ]
+    datumi = [d for d in datumi if d is not None]
+    if not datumi:
+        return None
+    return max(datumi).strftime("%d.%m.%Y")
+
+
 def novi_id(transakcije):
     """ Sljedeći slobodan ID. """
     return max([t["ID"] for t in transakcije]) + 1 if transakcije else 1
@@ -221,14 +245,21 @@ def preracunaj_tablicu(racuni, transakcije):
     return redovi
 
 
-def stanja_po_racunima(racuni, transakcije):
+def stanja_po_racunima(racuni, transakcije, na_dan=None):
     """
-    Vraća {racun: trenutno_stanje} uzimajući u obzir 'Stanje' resete:
+    Vraća {racun: stanje} uzimajući u obzir 'Stanje' resete:
     zadnja snimka stanja nekog računa poništava sve prijašnje transakcije tog
     računa, a priljevi/odljevi nakon nje se pribrajaju/oduzimaju od te snimke.
+
+    Ako je zadan 'na_dan' (datetime.date), obračunavaju se samo stavke s
+    datumom <= na_dan, tj. vraća se stanje kakvo je bilo na taj dan.
     """
     stanja = {r: 0.0 for r in racuni}
     for t in sorted(transakcije, key=kljuc_datuma):
+        if na_dan is not None:
+            d = _datum_stavke(t)
+            if d is None or d > na_dan:
+                continue
         stanja.setdefault(t["Račun"], 0.0)
         if t["Tip"] == STANJE:
             stanja[t["Račun"]] = t["Iznos"]
@@ -239,14 +270,21 @@ def stanja_po_racunima(racuni, transakcije):
     return stanja
 
 
-def pregled_racuna(racuni, transakcije):
+def pregled_racuna(racuni, transakcije, na_dan=None):
     """
-    Za svaki račun vraća red s trenutnim stanjem i datumom zadnje snimke
-    ('Stanje') od koje to stanje vrijedi. Pogodno za tablicu/prikaz.
+    Za svaki račun vraća red sa stanjem i datumom zadnje snimke ('Stanje')
+    od koje to stanje vrijedi. Pogodno za tablicu/prikaz.
+
+    Ako je zadan 'na_dan' (datetime.date), obračunavaju se samo stavke s
+    datumom <= na_dan, tj. prikazuje se stanje kakvo je bilo na taj dan.
     """
     stanja = {r: 0.0 for r in racuni}
     zadnja_snimka = {}
     for t in sorted(transakcije, key=kljuc_datuma):
+        if na_dan is not None:
+            d = _datum_stavke(t)
+            if d is None or d > na_dan:
+                continue
         r = t["Račun"]
         stanja.setdefault(r, 0.0)
         if t["Tip"] == STANJE:
@@ -260,7 +298,7 @@ def pregled_racuna(racuni, transakcije):
     return [
         {
             "Račun / izvor": r,
-            "Trenutno stanje (EUR)": hrvatski_broj(stanja.get(r, 0.0)),
+            "Stanje (EUR)": hrvatski_broj(stanja.get(r, 0.0)),
             "Vrijedi od (zadnja snimka)": zadnja_snimka.get(r, "—"),
         }
         for r in racuni

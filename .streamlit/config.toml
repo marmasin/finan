@@ -1,0 +1,8 @@
+[theme]
+# Naglasna boja (gumbi, kartice, aktivni elementi). Ne forsira svijetlu/tamnu
+# temu — mobitel/desktop i dalje prate sistemsku postavku korisnika.
+primaryColor = "#2E7D32"
+
+[client]
+# Sakrij "hamburger" izbornik razvijatelja radi čišćeg mobilnog prikaza.
+toolbarMode = "minimal"

@@ -1,5 +1,6 @@
 # --- Osobni podaci: NIKAD ne uploadati u git ---
 financije_baza.json
+*.bak
 
 # --- Tajne / vjerodajnice: NIKAD u git ---
 .streamlit/secrets.toml

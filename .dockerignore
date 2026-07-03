@@ -1,5 +1,6 @@
 # Osobni podaci i lokalne stvari NE idu u kontejnersku sliku.
 financije_baza.json
+*.bak
 .venv/
 venv/
 env/
