@@ -68,8 +68,8 @@ su u bucketu, kod je u gitu, a osobni podaci i tajne nisu.
 Bez postavljenih varijabli app radi po starome — lokalna `financije_baza.json`,
 bez lozinke:
 
-```bash
-.venv\Scripts\streamlit run app.py
+```powershell
+uv run streamlit run app.py
 ```
 
 | Varijabla          | Čemu služi                                  |

@@ -113,11 +113,31 @@ def _sa_racunima_iz_transakcija(racuni, transakcije):
     return racuni
 
 
+def _postojeci_json():
+    """
+    Vraća trenutni sadržaj datoteke kao dict (ili {} ako je nema/neispravna).
+
+    Služi da `spremi` ne pobriše ključeve koje ovaj modul ne poznaje — npr.
+    "ciljevi" iz `ciljevi.py`. Bez toga bi svako spremanje transakcija iz appa
+    obrisalo ciljeve.
+    """
+    if not os.path.exists(DATOTEKA):
+        return {}
+    try:
+        with open(DATOTEKA, "r", encoding="utf-8") as f:
+            podaci = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return podaci if isinstance(podaci, dict) else {}
+
+
 def spremi(racuni, transakcije):
     """ Trajno sprema račune i transakcije u JSON datoteku (i u GCS ako je uključen). """
+    podaci = _postojeci_json()
+    podaci["racuni"] = racuni
+    podaci["transakcije"] = transakcije
     with open(DATOTEKA, "w", encoding="utf-8") as f:
-        json.dump({"racuni": racuni, "transakcije": transakcije},
-                  f, ensure_ascii=False, indent=2)
+        json.dump(podaci, f, ensure_ascii=False, indent=2)
     # Nakon lokalnog zapisa vrati bazu u oblak da promjena preživi restart instance.
     if storage.omogucen():
         try:
