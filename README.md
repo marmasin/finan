@@ -7,16 +7,21 @@ verziju ([app.py](app.py), Streamlit) i terminalsku verziju
 
 ## Pokretanje lokalno
 
-```bash
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
+Potreban je [uv](https://docs.astral.sh/uv/) (`winget install astral-sh.uv`).
+
+```powershell
+uv venv --python 3.12
+uv pip install -r requirements.txt
 
 # Web (Streamlit)
-.venv\Scripts\streamlit run app.py
+uv run streamlit run app.py
 
 # Terminal
-.venv\Scripts\python financija.py
+uv run financija.py
 ```
+
+`uv venv` sam kreira `.venv` u korijenu projekta, a `uv run` ga automatski
+koristi — ručna aktivacija (`.venv\Scripts\activate`) nije potrebna.
 
 Lokalno se baza čuva u `financije_baza.json` (nije u gitu — osobni podaci).
 
