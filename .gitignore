@@ -1,29 +1,20 @@
-# --- Osobni podaci: NIKAD ne uploadati u git ---
-financije_baza.json
-*.bak
+node_modules/
+dist/
+build/
+.cache/
+.env*
+.vite/
+vite.config.*.timestamp-*
+*.tsbuildinfo
+*-debug.log*
+logs/
+*.log
+.claude-replay.*
+.tmp-*
 
-# --- Tajne / vjerodajnice: NIKAD u git ---
-.streamlit/secrets.toml
-*.json.key
-client_secret*.json
-service-account*.json
-token.json
-
-# --- Python virtualno okruženje ---
-.venv/
-venv/
-env/
-
-# --- Python cache ---
-__pycache__/
-*.py[cod]
-*.egg-info/
-
-# --- IDE / editor / alati ---
-.vscode/
-.idea/
-.claude/
-
-# --- OS smeće ---
-Thumbs.db
-.DS_Store
+# Platform-managed agentplat state, not project source. In the
+# client-initiated single-repo workspace layout (make's `Path: "."` spec) the
+# repo root IS the workspace root, so these land inside this repo rather than
+# beside it.
+/.plugins/
+/.opencode-skills/
