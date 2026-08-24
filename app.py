@@ -1,6 +1,13 @@
 """
 Web (Streamlit) verzija financijskog menadžera.
 
+Izgled je preslikan iz Figma dizajna: tamna ploča, kartice s prigušenim rubom,
+brojevi u monospaceu i tabovi kao segmentirani izbornik. Tokeni, CSS i HTML
+gradivni blokovi su u `stil.py`, a tema u `.streamlit/config.toml` — ovdje je
+samo raspored i pozivanje logike. Prikazi koji su samo za čitanje („Danas”,
+„Buduće”, „Detalji”) crtaju se vlastitim HTML-om, jer Streamlitove tablice ne
+mogu dati taj izgled; „Unos” koristi prave widgete jer traži interakciju.
+
 Unos se uređuje IZRAVNO u tablici (st.data_editor); ugrađena alatna traka
 tablice je skrivena jer sve njezine radnje stoje u bočnom izborniku.
 Redovi se označavaju kvačicom u stupcu „✓”, a odjeljak „⚡ Rad sa stavkama” u
@@ -34,6 +41,7 @@ import streamlit as st
 
 import ciljevi
 import logika
+import stil
 
 st.set_page_config(
     page_title="Financijski menadžer",
@@ -43,206 +51,9 @@ st.set_page_config(
 )
 
 
-def ubaci_mobilni_css():
-    """
-    CSS za izgled i ugodan rad na mobitelu.
-
-    Samo na mobitelu, @media (max-width: 640px):
-      • uži bočni razmaci (više prostora za sadržaj),
-      • manji naslovi,
-      • metrike se prelamaju u 2 po redu umjesto da se stisnu u jedan red,
-      • kompaktniji font vrijednosti/oznaka metrika.
-    """
-    st.markdown(
-        """
-        <style>
-        @media (max-width: 640px) {
-            .block-container {
-                padding: 1rem 0.8rem 3rem 0.8rem !important;
-            }
-            h1 { font-size: 1.5rem !important; }
-            h2, h3 { font-size: 1.15rem !important; }
-
-            /* Metrike/kolone: umjesto stiskanja u jedan red, prelom u mrežu */
-            div[data-testid="stHorizontalBlock"] {
-                flex-wrap: wrap !important;
-                gap: 0.5rem !important;
-            }
-            div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
-                flex: 1 1 45% !important;
-                min-width: 45% !important;
-            }
-            div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-            div[data-testid="stMetricLabel"] p { font-size: 0.8rem !important; }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def sakrij_ugradenu_alatnu():
-    """
-    Skriva ugrađenu alatnu traku tablica u tabovima „Unos” i „Detalji”
-    (＋ Add row, Show/hide columns, Download as CSV, Search, Fullscreen).
-
-    U „Unosu” sve te radnje stoje u bočnom izborniku, pa bi ih dvostruko nuditi
-    samo zbunjivalo; „Detalji” je skriva da izgleda isto. Pravilo se veže na
-    klasu `st-key-<ključ>` koju Streamlit doda na `st.container(key=...)` — tako
-    tablice u „Danas” i „Buduće” zadrže alatnu traku (tamo je izvoz u CSV,
-    traženje i cijeli ekran jedini način da se do njih dođe).
-    """
-    st.markdown(
-        """
-        <style>
-        .st-key-tablica_unosa div[data-testid="stElementToolbarButtonContainer"],
-        .st-key-tablica_detalji div[data-testid="stElementToolbarButtonContainer"] {
-            display: none !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-BOJE_TABOVA = [
-    # (ikona, naziv, ključ kontejnera, boja)
-    ("📅", "Danas", "danas", "#1264A3"),      # plava – sadašnjost
-    ("🔮", "Buduće", "buduce", "#6B3FA0"),    # ljubičasta – projekcija
-    ("✏️", "Unos", "unos", "#A2590F"),        # jantarna – rad/uređivanje
-    ("📊", "Detalji", "detalji", "#146B54"),  # zelena – analiza
-]
-
-
-# Podloga glavnog prostora (stMainBlockContainer). Tema u .streamlit/config.toml
-# namjerno prati sistemsku postavku, pa uz svjetlo sivu treba i tamni par —
-# inače bi u tamnoj temi svijetli tekst pao na svijetlu podlogu.
-SIVA_PODLOGA = "#F0F2F6"        # svijetla tema: svjetlo siva
-SIVA_PODLOGA_TAMNA = "#1B1F27"  # tamna tema: sivo malo svjetlije od pozadine
-
-
-def u_rgba(hx, alfa):
-    """'#1264A3' + prozirnost → 'rgba(18, 100, 163, 0.07)'.
-
-    Prozirna boja se stapa s pozadinom stranice, pa isti ton radi i u svijetloj
-    i u tamnoj temi (puna boja bi u jednoj od njih bila preagresivna).
-    """
-    r, g, b = (int(hx[i:i + 2], 16) for i in (1, 3, 5))
-    return f"rgba({r}, {g}, {b}, {alfa})"
-
-
-def ubaci_css_tabova():
-    """
-    Veći tabovi na vrhu stranice, svaki u svojoj boji, i stranica ispod u istom
-    tonu.
-
-    Svaki tab je puna ploha svoje boje s bijelim tekstom — zato je čitljiv i u
-    svijetloj i u tamnoj temi (boja ne ovisi o pozadini stranice). Neodabrani su
-    prigušeni `filterom` (a ne prozirnošću teksta) da kontrast bijelog na boji
-    ostane isti. Zadana crvena podvlaka Streamlita se skriva.
-
-    Sadržaj svakog taba je u `st.container(key="stranica_<ključ>")`, pa mu ide
-    blaga prozirna podloga iste boje i obojena gornja crta — stranica se time
-    vidno spaja s tabom iznad.
-    """
-    pravila = "\n".join(
-        f'        div[data-testid="stTabs"] button[data-baseweb="tab"]'
-        f":nth-of-type({i}) {{ background: {boja}; }}"
-        f"  /* {naziv} */"
-        for i, (_, naziv, _, boja) in enumerate(BOJE_TABOVA, start=1)
-    )
-    stranice = "\n".join(
-        f"""
-        /* Stranica taba „{naziv}” */
-        .st-key-stranica_{kljuc} {{
-            background: {u_rgba(boja, 0.06)};
-            border-top: 4px solid {boja};
-            border-radius: 0 0 0.7rem 0.7rem;
-            padding: 1.1rem 1.25rem 1.4rem 1.25rem;
-        }}
-        .st-key-stranica_{kljuc} hr {{ border-color: {u_rgba(boja, 0.35)}; }}
-        .st-key-stranica_{kljuc} div[data-testid="stExpander"] details {{
-            border-color: {u_rgba(boja, 0.35)};
-        }}"""
-        for _, naziv, kljuc, boja in BOJE_TABOVA
-    )
-    st.markdown(
-        f"""
-        <style>
-        /* Naslov je uklonjen → tabovi idu bliže vrhu stranice. */
-        .block-container {{ padding-top: 2rem !important; }}
-
-        /* Glavni prostor: svjetlo siva podloga. */
-        div[data-testid="stMainBlockContainer"] {{
-            background: {SIVA_PODLOGA};
-            border-radius: 0.8rem;
-        }}
-        @media (prefers-color-scheme: dark) {{
-            div[data-testid="stMainBlockContainer"] {{
-                background: {SIVA_PODLOGA_TAMNA};
-            }}
-        }}
-
-        div[data-testid="stTabs"] div[data-baseweb="tab-list"] {{
-            gap: 0.4rem;
-            border-bottom: none;
-        }}
-        div[data-testid="stTabs"] button[data-baseweb="tab"] {{
-            flex: 1 1 0;                        /* jednake širine, cijela traka */
-            height: auto;
-            min-height: 3.4rem;
-            padding: 0.85rem 1rem;
-            border-radius: 0.7rem 0.7rem 0 0;
-            filter: saturate(0.5) brightness(0.85);
-            transition: filter 0.15s ease, transform 0.15s ease;
-        }}
-        div[data-testid="stTabs"] button[data-baseweb="tab"] p {{
-            font-size: 1.1rem !important;
-            font-weight: 600 !important;
-            color: #ffffff !important;
-        }}
-        div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {{
-            filter: saturate(0.8) brightness(0.95);
-        }}
-        div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {{
-            filter: none;                       /* odabrani je u punoj boji */
-            box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.18);
-        }}
-{pravila}
-        /* Zadana podvlaka/okvir bi se borili s bojama. */
-        div[data-testid="stTabs"] div[data-baseweb="tab-highlight"],
-        div[data-testid="stTabs"] div[data-baseweb="tab-border"] {{
-            display: none !important;
-        }}
-
-        @media (max-width: 640px) {{
-            /* Na mobitelu 4 taba u jednom redu su preuski → 2 po redu. */
-            div[data-testid="stTabs"] div[data-baseweb="tab-list"] {{
-                flex-wrap: wrap !important;
-            }}
-            div[data-testid="stTabs"] button[data-baseweb="tab"] {{
-                flex: 1 1 45% !important;
-                min-height: 3rem;
-                padding: 0.7rem 0.5rem;
-            }}
-            div[data-testid="stTabs"] button[data-baseweb="tab"] p {{
-                font-size: 0.95rem !important;
-            }}
-            /* Uži rubovi stranice na malom ekranu. */
-            div[class*="st-key-stranica_"] {{
-                padding: 0.9rem 0.7rem 1.1rem 0.7rem !important;
-            }}
-        }}
-{stranice}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-ubaci_mobilni_css()
-sakrij_ugradenu_alatnu()
-ubaci_css_tabova()
+# Izgled (tokeni, CSS i HTML blokovi za prikaze koji se sami crtaju) je u
+# `stil.py`. Ovdje ostaje samo raspored i pozivi logike.
+stil.ubaci_css()
 
 
 def _ocekivana_lozinka():
@@ -390,14 +201,6 @@ def redovi_sljedivosti(racuni, transakcije, danas, racun=None, buducnost=False):
             }
         )
     return redovi
-
-
-def tablica_stanja(racuni, stanja):
-    """Uredan popis {Račun, Stanje (EUR)} za prikaz u tablici (mobilno čisto)."""
-    return [
-        {"Račun": r, "Stanje (EUR)": logika.hrvatski_broj(stanja.get(r, 0.0))}
-        for r in racuni
-    ]
 
 
 KOL_ODABIR = "✓"
@@ -891,8 +694,8 @@ def render_unos(racuni, transakcije):
     df = df_iz_transakcija(vidljive)
     df.insert(0, KOL_ODABIR, False)
 
-    # Kontejner s ključem → klasa `st-key-tablica_unosa`, na koju je vezan CSS
-    # koji skriva ugrađenu alatnu traku (vidi sakrij_ugradenu_alatnu).
+    # Ugrađena alatna traka tablice je skrivena globalno u `stil.py` — sve njezine
+    # radnje (izvoz, traženje, stupci) stoje u bočnom izborniku.
     with st.container(key="tablica_unosa"):
         uredjeno = st.data_editor(
             df,
@@ -970,34 +773,8 @@ ZNAK_STATUSA = {
 
 
 def _prikazi_cilj(n):
-    """Jedan cilj u glavnom prostoru: naslov, traka napretka i dvije metrike."""
-    st.markdown(
-        f"{ZNAK_STATUSA.get(n['Status'], '•')} **{n['Račun']}** · cilj "
-        f"{logika.hrvatski_broj(n['Iznos'])} € do {n['Rok']}"
-    )
-    # Traka ima smisla samo za pozitivan cilj (kod „ne ispod −200 €” nema).
-    if n["Iznos"] > 0:
-        st.progress(min(n["Postotak"] / 100, 1.0))
-
-    lijevo, desno = st.columns(2)
-    lijevo.metric(
-        "Projekcija na rok",
-        f"{logika.hrvatski_broj(n['Projekcija'])} €",
-        delta=f"{logika.hrvatski_broj(n['Razlika'])} €",
-    )
-    if n["Status"] == ciljevi.MANJAK and n["Mjesecno"]:
-        desno.metric(
-            "Manjak",
-            f"{logika.hrvatski_broj(abs(n['Razlika']))} €",
-            delta=f"treba ~{logika.hrvatski_broj(n['Mjesecno'])} €/mj",
-            delta_color="off",
-        )
-    elif n["Dana"] >= 0:
-        desno.metric("Dana do roka", n["Dana"])
-    else:
-        desno.metric("Rok prošao", f"{abs(n['Dana'])} d")
-    if n["Napomena"]:
-        st.caption(f"„{n['Napomena']}”")
+    """Jedan cilj kao kartica iz dizajna (cilj, projekcija, dani, traka)."""
+    stil.crtaj(stil.kartica_cilja(n, ZNAK_STATUSA.get(n["Status"], "•")))
 
 
 KLJUC_POPUPA_CILJ = "ciljevi_popup_otvoren"
@@ -1195,52 +972,41 @@ ima_buducnost = bool(zadnji_datum_str and parsiraj_datum(zadnji_datum_str) > dan
 
 def render_hero():
     """
-    Raspoloživo danas (+ buduće) — crta se na vrhu SVAKOG taba.
+    Hero traka iz dizajna: ukupno danas + projekcija sa razlikom.
 
-    Tabovi su prvi element stranice (nema naslova iznad njih), pa hero više ne
-    može stajati iznad njih. Ponavljanjem u svakom tabu saldo ostaje vidljiv
-    odakle god gledaš; u prikazu je uvijek samo jedan tab, pa se ne dvoji.
+    Crta se JEDNOM, iznad tabova — u dizajnu stoji ispod marke i ostaje vidljiva
+    bez obzira na odabrani tab.
     """
-    h1, h2 = st.columns(2)
-    h1.metric(
-        f"💰 Danas · {danas.strftime('%d.%m.%Y')}",
-        f"{logika.hrvatski_broj(sum(stanja_danas.values()))} €",
-    )
-    if ima_buducnost:
-        razlika = sum(stanja_buduce.values()) - sum(stanja_danas.values())
-        h2.metric(
-            f"🔮 Buduće · {zadnji_datum_str}",
-            f"{logika.hrvatski_broj(sum(stanja_buduce.values()))} €",
-            delta=f"{logika.hrvatski_broj(razlika)} €" if razlika else None,
+    stil.crtaj(
+        stil.hero(
+            sum(stanja_danas.values()),
+            danas.strftime("%d.%m.%Y"),
+            projekcija=sum(stanja_buduce.values()) if ima_buducnost else None,
+            datum_projekcije=zadnji_datum_str,
         )
-    st.divider()
+    )
 
 
-# Tabovi su PRVI element stranice; boje i veličina su u ubaci_css_tabova().
+stil.crtaj(stil.marka())
+render_hero()
+
+# Tabovi kao segmentirani izbornik; boje su u stil.TABOVI / stil._css_tabova().
 tab_danas, tab_buduce, tab_unos, tab_detalji = st.tabs(
-    [f"{ikona} {naziv}" for ikona, naziv, _, _ in BOJE_TABOVA]
+    [f"{ikona} {naziv}" for ikona, naziv, _, _ in stil.TABOVI]
 )
 
-# Sadržaj svakog taba ide u `st.container(key="stranica_<ključ>")` — na tu klasu
-# je vezana boja stranice (vidi ubaci_css_tabova).
 # --- Tab: Danas --------------------------------------------------------------
-with tab_danas, st.container(key="stranica_danas"):
-    render_hero()
-    st.caption(f"Stanje po računima na {danas.strftime('%d.%m.%Y')}")
-    st.dataframe(tablica_stanja(racuni, stanja_danas), hide_index=True, width="stretch")
+with tab_danas:
+    stil.crtaj(stil.oznaka(f"Stanja po računima · {danas.strftime('%d.%m.%Y')}"))
+    stil.crtaj(stil.kartica_stanja(racuni, stanja_danas))
 
 # --- Tab: Buduće -------------------------------------------------------------
-with tab_buduce, st.container(key="stranica_buduce"):
-    render_hero()
+with tab_buduce:
     render_ciljevi_pregled(racuni, transakcije, danas)
-    st.divider()
+    stil.crtaj(stil.oznaka("Buduće stavke po računima"))
     if not ima_buducnost:
         st.info("Nema unesenih stavki nakon današnjeg dana.")
     else:
-        st.caption(
-            f"Projekcija na {zadnji_datum_str} · Δ = promjena u odnosu na danas. "
-            "Otvori račun za pripadajuće buduće stavke."
-        )
         for r in racuni:
             redovi_r = redovi_sljedivosti(
                 racuni, transakcije, danas, racun=r, buducnost=True
@@ -1250,19 +1016,23 @@ with tab_buduce, st.container(key="stranica_buduce"):
             bud = stanja_buduce.get(r, 0.0)
             raz = bud - stanja_danas.get(r, 0.0)
             strelica = "▲" if raz > 0 else ("▼" if raz < 0 else "•")
+            # Expander (a ne vlastiti HTML) jer sadržaj mora biti sklopiv —
+            # to Streamlit ume, a čisti HTML u `st.markdown` ne bi.
             with st.expander(
-                f"{r} · {logika.hrvatski_broj(bud)} € "
-                f"({strelica} {logika.hrvatski_broj(abs(raz))} €)"
+                f"{r} · {stil.eur(bud)} "
+                f"({strelica} {stil.eur(abs(raz))} · {len(redovi_r)} stavki)"
             ):
                 st.dataframe(redovi_r, hide_index=True, width="stretch")
 
         ukupno = sum(stanja_buduce.values())
-        raz_uk = ukupno - sum(stanja_danas.values())
-        strelica_uk = "▲" if raz_uk >= 0 else "▼"
-        with st.expander(
-            f"💰 RASPOLOŽIVO · {logika.hrvatski_broj(ukupno)} € "
-            f"({strelica_uk} {logika.hrvatski_broj(abs(raz_uk))} €)"
-        ):
+        stil.crtaj(
+            stil.red_zbroja(
+                "Ukupno raspoloživo",
+                ukupno,
+                razlika=ukupno - sum(stanja_danas.values()),
+            )
+        )
+        with st.expander("Sve buduće stavke zajedno"):
             st.dataframe(
                 redovi_sljedivosti(
                     racuni, transakcije, danas, racun=None, buducnost=True
@@ -1272,24 +1042,14 @@ with tab_buduce, st.container(key="stranica_buduce"):
             )
 
 # --- Tab: Unos ---------------------------------------------------------------
-with tab_unos, st.container(key="stranica_unos"):
-    render_hero()
+with tab_unos:
     render_unos(racuni, transakcije)
 
 # --- Tab: Detalji ------------------------------------------------------------
-with tab_detalji, st.container(key="stranica_detalji"):
-    render_hero()
-    st.caption("Sljedivost: obračun stanja po svakoj pojedinoj stavci.")
+with tab_detalji:
+    stil.crtaj(stil.oznaka(f"Revizijski trag — {len(redovi)} stavki"))
     if redovi:
-        # Isti ključ-kontejner kao tablica unosa → i ovdje bez alatne trake
-        # (vidi sakrij_ugradenu_alatnu). Danas i Buduće je zadržavaju.
-        with st.container(key="tablica_detalji"):
-            st.dataframe(
-                redovi,
-                column_order=logika.stupci_tablice(racuni),
-                hide_index=True,
-                width="stretch",
-            )
+        stil.crtaj(stil.tablica_sljedivosti(redovi, racuni, danas))
     else:
         st.info("Baza je prazna — dodaj prvu stavku u tabu „Unos”.")
 
@@ -1321,8 +1081,11 @@ with st.sidebar:
         st.caption("Trenutno nema izvora koji se mogu obrisati.")
     else:
         za_brisanje = st.selectbox("Obriši izvor", obrisivi, key="del_racun")
-        ciljevi = [r for r in racuni if r != za_brisanje]
-        cilj = st.selectbox("Premjesti njegove stavke u", ciljevi, key="cilj_racun")
+        # NE zvati ovo `ciljevi` — to je naziv uvezenog modula, pa bi pridruživanje
+        # na razini modula pregazilo `import ciljevi` i srušilo popup ciljeva
+        # (`ciljevi.ucitaj()` na listi) čim postoji ijedan obrisiv izvor.
+        odredista = [r for r in racuni if r != za_brisanje]
+        cilj = st.selectbox("Premjesti njegove stavke u", odredista, key="cilj_racun")
         if st.button("🗑 Obriši izvor i premjesti stavke", type="primary"):
             try:
                 n = logika.obrisi_racun(racuni, transakcije, za_brisanje, cilj)

@@ -260,6 +260,17 @@ def preracunaj_tablicu(racuni, transakcije):
         }
         for r in racuni:
             red[r] = hrvatski_broj(stanja.get(r, 0.0))
+        # Sirovi podaci uz formatirane stupce — trebaju ih prikazi koji sami
+        # crtaju tablicu (web verzija) da mogu obojiti predznak i označiti tip.
+        # Sve je pod JEDNIM ključem jer su nazivi računa također stupci, pa bi
+        # ravni ključevi ("Tip", "Iznos") sudarili s računom tog imena.
+        red["Stavka"] = {
+            "Tip": tip,
+            "Račun": t["Račun"],
+            "Iznos": iznos_vrijednost,
+            "Stanja": dict(stanja),
+            "Raspoloživo": raspolozivo,
+        }
         redovi.append(red)
 
     return redovi

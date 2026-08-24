@@ -1,8 +1,60 @@
+# Tema preslikana iz Figma dizajna (vidi stil.py — isti tokeni na jednom mjestu).
+#
+# Namjerno je `base = "dark"`, a ne praćenje sistemske postavke: dizajn je
+# napravljen kao tamna ploča (#1a1a1a) s prigušenim rubovima, pa bi u svijetloj
+# temi izgubio smisao — svjetli tekst na svijetloj podlozi.
+#
+# Sve što Streamlit ume obojiti sam stoji OVDJE; stil.py dodaje CSS samo za ono
+# što tema ne pokriva (tabovi, kartice, tablica sljedivosti).
+
 [theme]
-# Naglasna boja (gumbi, kartice, aktivni elementi). Ne forsira svijetlu/tamnu
-# temu — mobitel/desktop i dalje prate sistemsku postavku korisnika.
-primaryColor = "#2E7D32"
+base = "dark"
+
+# Boje — identične `:root` varijablama iz Figma verzije.
+primaryColor = "#c96442"              # naglasak (gumbi, fokus)
+backgroundColor = "#1a1a1a"           # podloga stranice
+secondaryBackgroundColor = "#262626"  # kartice, polja, tablice
+textColor = "#ececec"
+borderColor = "#2f2f2f"
+linkColor = "#c96442"
+codeBackgroundColor = "#212121"
+codeTextColor = "#ececec"
+
+# Semantičke boje (koriste ih st.metric delta, st.success/error, badge-evi).
+greenColor = "#34d399"
+redColor = "#f87171"
+orangeColor = "#fb923c"
+violetColor = "#8b5cf6"
+blueColor = "#3b82f6"
+yellowColor = "#f59e0b"
+grayColor = "#8a8a8a"
+
+# Tipografija — Inter za tekst, DM Mono za brojeve (kao u Figmi).
+# Datoteke dolaze s Google Fontsa; `@import` je u stil.py.
+font = "Inter, ui-sans-serif, system-ui, sans-serif"
+headingFont = "Inter, ui-sans-serif, system-ui, sans-serif"
+codeFont = "DM Mono, ui-monospace, monospace"
+baseFontSize = 15
+
+# Zaobljenja i rubovi — `--radius: 10px` iz Figme.
+baseRadius = "10px"
+buttonRadius = "8px"
+showWidgetBorder = true
+showSidebarBorder = true
+
+# Tablice: zaglavlje tamnije od tijela, rub prigušen kao kartice.
+dataframeHeaderBackgroundColor = "#212121"
+dataframeBorderColor = "#2f2f2f"
+
+# Grafovi (ako se dodaju) prate boje tabova iz dizajna.
+chartCategoricalColors = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#c96442", "#f87171"]
+
+[theme.sidebar]
+# Bočni izbornik je u dizajnu tamniji od glavnog prostora (#212121 vs #1a1a1a).
+backgroundColor = "#212121"
+secondaryBackgroundColor = "#262626"
+borderColor = "#2f2f2f"
 
 [client]
-# Sakrij "hamburger" izbornik razvijatelja radi čišćeg mobilnog prikaza.
+# Sakrij „hamburger” izbornik razvijatelja radi čišćeg mobilnog prikaza.
 toolbarMode = "minimal"
