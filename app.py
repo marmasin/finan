@@ -218,16 +218,17 @@ def je_oznacen(row):
     return bool(v) if pd.notna(v) else False
 
 
-def kljuc_editora(upit=""):
+def kljuc_editora(upit="", mjesec=None):
     """
-    Ključ editora: verzija + aktivni upit.
+    Ključ editora: verzija + aktivni upit + odabrani mjesec.
 
     Verzija se poveća nakon spremanja/dupliciranja/brisanja pa Streamlit izgradi
-    svjež editor bez zaostalih izmjena i kvačica. Upit je dio ključa jer filtar
-    mijenja skup redova — stare izmjene (edited_rows) odnosile bi se na pogrešne
-    redove i tiho pokvarile podatke.
+    svjež editor bez zaostalih izmjena i kvačica. Upit i mjesec su dio ključa
+    jer filtar mijenja skup redova — stare izmjene (edited_rows) odnosile bi se
+    na pogrešne redove i tiho pokvarile podatke.
     """
-    return f"editor_stavki_{st.session_state.get('verzija_editora', 0)}_{upit}"
+    verzija = st.session_state.get("verzija_editora", 0)
+    return f"editor_stavki_{verzija}_{mjesec or 'sve'}_{upit}"
 
 
 def osvjezi_editor():
@@ -235,23 +236,49 @@ def osvjezi_editor():
     st.session_state["verzija_editora"] = st.session_state.get("verzija_editora", 0) + 1
 
 
-def filtriraj_transakcije(transakcije, upit):
+def kljuc_mjeseca(datum_str):
+    """'DD.MM.YYYY' → 'YYYY-MM' (ključ za filtar i grupiranje po mjesecu)."""
+    try:
+        d = parsiraj_datum(datum_str)
+    except (TypeError, ValueError):
+        return None
+    return f"{d.year}-{d.month:02d}"
+
+
+def prosli_mjesec(danas):
+    """Ključ mjeseca prije `danas` — zadani filtar u „Unosu”, kao u dizajnu."""
+    if danas.month == 1:
+        return f"{danas.year - 1}-12"
+    return f"{danas.year}-{danas.month - 1:02d}"
+
+
+def naziv_mjeseca(kljuc):
+    """'2026-09' → 'Rujan 2026'."""
+    godina, mjesec = kljuc.split("-")
+    return f"{logika.HRVATSKI_MJESECI[int(mjesec)]} {godina}"
+
+
+def filtriraj_transakcije(transakcije, upit, mjesec=None):
     """
-    Dijeli stavke na (vidljive, skrivene) prema tekstu upita — traži po datumu,
-    opisu, tipu, iznosu i računu, bez obzira na velika/mala slova.
+    Dijeli stavke na (vidljive, skrivene) prema mjesecu ('YYYY-MM', None = svi)
+    i tekstu upita — upit traži po datumu, opisu, tipu, iznosu i računu, bez
+    obzira na velika/mala slova.
 
     Skrivene stavke se pri svakoj akciji vraćaju NEPROMIJENJENE, pa filtriranje
     nikad ne briše podatke.
     """
     upit = (upit or "").strip().lower()
-    if not upit:
+    if not upit and not mjesec:
         return list(transakcije), []
     vidljive, skrivene = [], []
     for t in transakcije:
         tekst = " ".join(
             str(t.get(k, "")) for k in ("Datum", "Opis", "Tip", "Iznos", "Račun")
         ).lower()
-        (vidljive if upit in tekst else skrivene).append(t)
+        pogodak = upit in tekst and (
+            not mjesec or kljuc_mjeseca(t.get("Datum")) == mjesec
+        )
+        (vidljive if pogodak else skrivene).append(t)
     return vidljive, skrivene
 
 
@@ -684,12 +711,38 @@ def render_unos(racuni, transakcije):
     if poruka:
         st.success(poruka)
 
-    vidljive, skrivene = filtriraj_transakcije(transakcije, upit)
-    if upit:
+    # Filtar po mjesecu iz dizajna: zadano prošli mjesec, uvijek ponuđen čak i
+    # bez stavki; zatim „Svi mjeseci” i ostali mjeseci s podacima, najnoviji prvi.
+    prosli = prosli_mjesec(danasnji_datum())
+    s_podacima = sorted(
+        {k for k in (kljuc_mjeseca(t.get("Datum")) for t in transakcije) if k},
+        reverse=True,
+    )
+    SVI = "sve"  # string, ne None — None je Streamlitov „ništa nije odabrano”
+    odabir = st.selectbox(
+        "📅 Mjesec",
+        [prosli, SVI] + [k for k in s_podacima if k != prosli],
+        format_func=lambda k: (
+            "Svi mjeseci" if k == SVI
+            else f"Prošli mjesec — {naziv_mjeseca(k)}" if k == prosli
+            else naziv_mjeseca(k)
+        ),
+        key="filtar_mjeseca",
+        help="Promjena mjeseca odbacuje neupisane izmjene u tablici.",
+    )
+    mjesec = None if odabir == SVI else odabir
+
+    vidljive, skrivene = filtriraj_transakcije(transakcije, upit, mjesec)
+    if upit or mjesec:
+        opis = " · ".join(
+            filter(None, [naziv_mjeseca(mjesec) if mjesec else "", upit and f"„{upit}”"])
+        )
         st.caption(
-            f"🔍 „{upit}” · prikazano {len(vidljive)} od {len(transakcije)} — "
+            f"🔍 {opis} · prikazano {len(vidljive)} od {len(transakcije)} — "
             f"skrivenih {len(skrivene)} ostaje sačuvano pri spremanju."
         )
+    if not vidljive and mjesec:
+        st.info("Nema stavki za odabrani mjesec.")
 
     df = df_iz_transakcija(vidljive)
     df.insert(0, KOL_ODABIR, False)
@@ -706,7 +759,7 @@ def render_unos(racuni, transakcije):
             num_rows="fixed",
             hide_index=True,
             width="stretch",
-            key=kljuc_editora(upit),
+            key=kljuc_editora(upit, mjesec),
             column_order=[KOL_ODABIR] + [s for s in SVI_STUPCI if s in stupci],
             column_config={
                 KOL_ODABIR: st.column_config.CheckboxColumn(
@@ -1047,11 +1100,41 @@ with tab_unos:
 
 # --- Tab: Detalji ------------------------------------------------------------
 with tab_detalji:
-    stil.crtaj(stil.oznaka(f"Revizijski trag — {len(redovi)} stavki"))
-    if redovi:
-        stil.crtaj(stil.tablica_sljedivosti(redovi, racuni, danas))
+    # Sve / Prošlost / Buduće kao u dizajnu; ponovni klik na odabrano ga
+    # odznači (None), što tretiramo kao „Sve”.
+    nacin = st.segmented_control(
+        "Prikaz",
+        ["Sve", "Prošlost", "Buduće"],
+        default="Sve",
+        key="detalji_nacin",
+        label_visibility="collapsed",
+    ) or "Sve"
+    if nacin == "Sve":
+        prikazani = redovi
     else:
+        prikazani = [
+            r for r in redovi
+            if (parsiraj_datum(r["Datum"]) <= danas) == (nacin == "Prošlost")
+        ]
+
+    stil.crtaj(stil.oznaka(f"Revizijski trag — {len(prikazani)} stavki"))
+    if not redovi:
         st.info("Baza je prazna — dodaj prvu stavku u tabu „Unos”.")
+    elif not prikazani:
+        st.info("Nema stavki za odabrani prikaz.")
+    elif nacin == "Prošlost":
+        # Prošlost je grupirana po mjesecima, najnoviji prvi, sve sklopljeno —
+        # kao u dizajnu. Stanja u redovima su i dalje kumulativna.
+        po_mjesecima = {}
+        for r in prikazani:
+            po_mjesecima.setdefault(kljuc_mjeseca(r["Datum"]), []).append(r)
+        for kljuc in sorted(po_mjesecima, reverse=True):
+            grupa = po_mjesecima[kljuc]
+            rijec = "stavka" if len(grupa) == 1 else "stavki"
+            with st.expander(f"{naziv_mjeseca(kljuc)} · {len(grupa)} {rijec}"):
+                stil.crtaj(stil.tablica_sljedivosti(grupa, racuni, danas))
+    else:
+        stil.crtaj(stil.tablica_sljedivosti(prikazani, racuni, danas))
 
 
 # --- Bočni izbornik: upravljanje izvorima/računima ---------------------------

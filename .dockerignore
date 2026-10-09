@@ -10,5 +10,6 @@ __pycache__/
 .gitignore
 .vscode/
 .idea/
+.claude/
 .streamlit/secrets.toml
 *.md

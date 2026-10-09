@@ -127,7 +127,8 @@ _STIL = """
     /* --- Prostor stranice ------------------------------------------------ */
     .block-container {
         padding-top: 2.2rem !important;
-        padding-bottom: 3rem !important;
+        /* + donji „notch” na iPhoneu, kao `safe-area-inset-bottom` u dizajnu */
+        padding-bottom: calc(3rem + env(safe-area-inset-bottom, 0px)) !important;
         max-width: 1400px;
     }
     /* Zbijeniji okomiti ritam — dizajn je gušći od Streamlitovog zadanog. */
