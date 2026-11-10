@@ -1,32 +1,38 @@
 """
 Web (Streamlit) verzija financijskog menadžera.
 
-Izgled je preslikan iz Figma dizajna: tamna ploča, kartice s prigušenim rubom,
-brojevi u monospaceu i tabovi kao segmentirani izbornik. Tokeni, CSS i HTML
-gradivni blokovi su u `stil.py`, a tema u `.streamlit/config.toml` — ovdje je
-samo raspored i pozivanje logike. Prikazi koji su samo za čitanje („Danas”,
-„Buduće”, „Detalji”) crtaju se vlastitim HTML-om, jer Streamlitove tablice ne
-mogu dati taj izgled; „Unos” koristi prave widgete jer traži interakciju.
+Izgled je po uzoru na PowerToys postavke (Windows 11 / Fluent): lijeva
+navigacija sa stranicama, a sadržaj kao niz kartica-postavki (ikona, naslov i
+opis lijevo, vrijednost desno). Tokeni, CSS i HTML gradivni blokovi su u
+`stil.py`, a tema u `.streamlit/config.toml` — ovdje je samo raspored i
+pozivanje logike. Prikazi koji su samo za čitanje crtaju se vlastitim HTML-om;
+„Unos”, „Izvori” i „Ciljevi” koriste prave widgete jer traže interakciju.
+
+Stranice (lijevi izbornik; na telefonu se sklapa iza ikone izbornika):
+    • Danas    — ukupno stanje, stanja po računima, sljedeće stavke
+    • Buduće   — projekcija po računima
+    • Unos     — filtar (mjesec, traženje, stupci), tablica i traka naredbi
+    • Detalji  — revizijski trag
+    • Izvori   — popis, dodavanje i brisanje izvora (zaštićeni se ne brišu;
+                 pri brisanju se bira račun na koji se premještaju stavke)
+    • Ciljevi  — napredak po ciljevima i popup za novi / izmjenu / brisanje
 
 Unos se uređuje IZRAVNO u tablici (st.data_editor); ugrađena alatna traka
-tablice je skrivena jer sve njezine radnje stoje u bočnom izborniku.
-Redovi se označavaju kvačicom u stupcu „✓”, a odjeljak „⚡ Rad sa stavkama” u
-bočnom izborniku nudi tri gumba jedan ispod drugoga:
-    • „Dodaj stavku”   → popup s obrascem (datum, iznos, opis, tip, izvor)
-    • ikona kopiranja  → kopija svake označene stavke (datum = danas)
-    • ikona koša       → brisanje označenih; otvara popup za potvrdu
-Ispod je „🧰 Alati tablice”: prikaz stupaca, izvoz u CSV i traženje. Traženje
-samo filtrira prikaz — skrivene stavke se pri svakoj akciji vraćaju
-nepromijenjene, pa se ne mogu izgubiti.
-Izvori se dodaju/brišu u odjeljku „Upravljanje izvorima” (zaštićeni se ne brišu;
-pri brisanju se bira račun na koji se premještaju stavke).
-Ispod toga je „🎯 Ciljevi po izvorima” — gumb „Postavi cilj” otvara popup za
-novi cilj, izmjenu ili brisanje (koliko želim da OSTANE na izvoru do zadanog
-roka). Napredak po ciljevima prikazuje se u tabu „🔮 Buduće”. Logika je u
-`ciljevi.py`, istom modulu koji koristi i samostalna skripta `uv run ciljevi.py`.
-Promjene se potvrđuju gumbom „Spremi promjene”, nakon čega se preračunava
-tablica sljedivosti. Sva logika i podaci dolaze iz `logika.py` – isti izvor
-kao terminalska verzija.
+tablice je skrivena jer su sve njezine radnje u kartici filtra i traci naredbi
+ispod tablice. Redovi se označavaju kvačicom u stupcu „✓”, a traka nudi:
+    • „Spremi promjene” → validira i sprema tablicu
+    • „Dodaj stavku”    → popup s obrascem (datum, iznos, opis, tip, izvor)
+    • „Dupliciraj”      → kopija svake označene stavke (datum = danas)
+    • „Obriši”          → brisanje označenih; otvara popup za potvrdu
+    • „CSV”             → izvoz prikazanih redova
+Traženje i mjesec samo filtriraju prikaz — skrivene stavke se pri svakoj akciji
+vraćaju nepromijenjene, pa se ne mogu izgubiti.
+
+Logika ciljeva je u `ciljevi.py`, istom modulu koji koristi i samostalna
+skripta `uv run ciljevi.py`. Sva ostala logika i podaci dolaze iz `logika.py`
+– isti izvor kao terminalska verzija.
+
+Na telefonu se app instalira kao aplikacija (PWA) — vidi `pwa/ugradi.py`.
 
 Pokretanje:
     uv run streamlit run app.py
@@ -35,6 +41,7 @@ Pokretanje:
 import contextlib
 import os
 from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -43,17 +50,22 @@ import ciljevi
 import logika
 import stil
 
+PWA = Path(__file__).parent / "pwa"
+
 st.set_page_config(
-    page_title="Financijski menadžer",
-    page_icon="💶",
+    page_title="Finan",
+    page_icon=str(PWA / "favicon.png"),
     layout="wide",
-    initial_sidebar_state="collapsed",
+    # „auto”: navigacija otvorena na računalu, sklopljena na telefonu.
+    initial_sidebar_state="auto",
 )
 
 
 # Izgled (tokeni, CSS i HTML blokovi za prikaze koji se sami crtaju) je u
 # `stil.py`. Ovdje ostaje samo raspored i pozivi logike.
 stil.ubaci_css()
+# Ikona + naziv na vrhu navigacije, kao naslovna traka PowerToys postavki.
+st.logo(str(PWA / "logo.png"), size="large", icon_image=str(PWA / "favicon.png"))
 
 
 def _ocekivana_lozinka():
@@ -76,14 +88,18 @@ def zahtijevaj_prijavu():
     if st.session_state.get("prijavljen"):
         return
 
-    st.title("🔒 Prijava")
-    unos = st.text_input("Lozinka", type="password")
-    if st.button("Prijavi se"):
-        if unos == lozinka:
-            st.session_state["prijavljen"] = True
-            st.rerun()
-        else:
-            st.error("Pogrešna lozinka.")
+    stil.crtaj(stil.naslov("Prijava"))
+    # Obrazac → Enter na tipkovnici telefona odmah prijavljuje.
+    with st.container(key="kartica_prijava"), st.form("prijava", border=False):
+        unos = st.text_input("Lozinka", type="password")
+        if st.form_submit_button(
+            "Prijavi se", icon=":material/login:", type="primary", width="stretch"
+        ):
+            if unos == lozinka:
+                st.session_state["prijavljen"] = True
+                st.rerun()
+            else:
+                st.error("Pogrešna lozinka.")
     st.stop()
 
 
@@ -206,14 +222,14 @@ def redovi_sljedivosti(racuni, transakcije, danas, racun=None, buducnost=False):
 KOL_ODABIR = "✓"
 SVI_STUPCI = ["Datum", "Opis", "Tip", "Iznos", "Račun"]
 UPUTA = (
-    "Uredi ćeliju pa „Spremi promjene” · „Dodaj stavku” otvara popup za unos · "
-    "označi „✓” pa klikni ikonu za dupliciranje ili brisanje · tip „Stanje” = "
-    "snimka salda (poništava prijašnje stavke tog računa)."
+    "Uredi ćeliju pa „Spremi promjene” · označi „✓” pa „Dupliciraj” ili "
+    "„Obriši” · tip „Stanje” = snimka salda (poništava prijašnje stavke tog "
+    "računa)."
 )
 
 
 def je_oznacen(row):
-    """True ako je red označen kvačicom u stupcu „✓” (za akcije u izborniku)."""
+    """True ako je red označen kvačicom u stupcu „✓” (za akcije ispod tablice)."""
     v = row.get(KOL_ODABIR)
     return bool(v) if pd.notna(v) else False
 
@@ -428,46 +444,6 @@ def obrisi_oznacene(uredjeno, racuni, skrivene=()):
     )
 
 
-def render_alati(uredjeno, transakcije):
-    """
-    Alati tablice u izborniku: prikaz stupaca, izvoz CSV, traženje.
-
-    Vrijednosti „prikaza” i „traženja” čitaju se u `render_unos` PRIJE tablice
-    (iz session_state prošlog prolaza), jer se ovi widgeti crtaju nakon nje.
-    """
-    st.subheader("🧰 Alati tablice")
-
-    st.multiselect(
-        "👁 Prikaz stupaca",
-        SVI_STUPCI,
-        default=SVI_STUPCI,
-        key="vidljivi_stupci",
-        help="Sakrij stupce iz prikaza. Sakriveni stupci se i dalje spremaju.",
-    )
-
-    izvoz = uredjeno.drop(columns=[KOL_ODABIR, "ID"], errors="ignore").copy()
-    if "Datum" in izvoz:
-        izvoz["Datum"] = izvoz["Datum"].map(lambda c: datum_u_str(c) or "")
-    st.download_button(
-        "⤓ Izvoz CSV",
-        data=izvoz.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
-        file_name=f"stavke_{danasnji_datum().strftime('%Y-%m-%d')}.csv",
-        mime="text/csv",
-        width="stretch",
-        help="Preuzmi prikazane redove (razdjelnik „;” i zarez za decimale → Excel).",
-    )
-
-    st.text_input(
-        "🔍 Traži",
-        key="upit_trazi",
-        placeholder="opis, račun, tip, datum, iznos…",
-        help=(
-            f"Filtrira {len(transakcije)} stavki. Nevidljive stavke ostaju "
-            "sačuvane pri spremanju. Promjena upita odbacuje neupisane izmjene."
-        ),
-    )
-
-
 KLJUC_POPUPA = "potvrda_brisanja_otvorena"
 KLJUC_POPUPA_NOVA = "nova_stavka_otvorena"
 
@@ -521,7 +497,7 @@ def dijalog_nove_stavke(uredjeno, racuni, skrivene):
         racun = st.selectbox(
             "Izvor / račun",
             list(racuni),
-            help="Nove izvore dodaj u „Upravljanje izvorima”.",
+            help="Nove izvore dodaj na stranici „Izvori”.",
         )
         st.divider()
         snimi = st.form_submit_button(
@@ -621,78 +597,139 @@ def dijalog_brisanja(uredjeno, racuni, skrivene, broj):
             st.rerun()  # zatvori popup i osvježi tablicu
 
 
-def render_akcije(uredjeno, racuni, skrivene, transakcije):
-    """
-    Rad sa stavkama u bočnom izborniku: dodaj stavku, dupliciraj, briši — jedno
-    ispod drugoga. Brisanje traži potvrdu u popupu (`dijalog_brisanja`).
+def otvori_popup(kljuc):
+    """Otvori jedan popup i zatvori ostale — Streamlit dopušta samo jedan dijalog."""
+    zatvori_popup()
+    zatvori_popup_nove()
+    zatvori_popup_cilja()
+    st.session_state[kljuc] = True
 
-    Zove se IZ tab-a „Unos”, nakon editora, jer joj trebaju uređeni redovi. Kako
-    se ovaj kod izvodi prije bloka „Upravljanje izvorima” na kraju skripte,
-    akcije završe na vrhu izbornika.
+
+def render_filtar(transakcije):
     """
-    with st.sidebar:
-        st.header("⚡ Rad sa stavkama")
-        st.caption(UPUTA)
-        broj = sum(je_oznacen(r) for _, r in uredjeno.iterrows())
-        if broj:
-            st.caption(f"Označeno redova: **{broj}**")
+    Kartica s filtrom iznad tablice: mjesec, traženje i prikaz stupaca.
+    Vraća (mjesec ili None, upit, vidljivi stupci).
+    """
+    # Filtar po mjesecu: zadano prošli mjesec, uvijek ponuđen čak i bez stavki;
+    # zatim „Svi mjeseci” i ostali mjeseci s podacima, najnoviji prvi.
+    prosli = prosli_mjesec(danasnji_datum())
+    s_podacima = sorted(
+        {k for k in (kljuc_mjeseca(t.get("Datum")) for t in transakcije) if k},
+        reverse=True,
+    )
+    SVI = "sve"  # string, ne None — None je Streamlitov „ništa nije odabrano”
+
+    with st.container(key="kartica_filtar"):
+        c_mjesec, c_trazi, c_stupci = st.columns(3)
+        odabir = c_mjesec.selectbox(
+            "Mjesec",
+            [prosli, SVI] + [k for k in s_podacima if k != prosli],
+            format_func=lambda k: (
+                "Svi mjeseci" if k == SVI
+                else f"Prošli mjesec — {naziv_mjeseca(k)}" if k == prosli
+                else naziv_mjeseca(k)
+            ),
+            key="filtar_mjeseca",
+            help="Promjena mjeseca odbacuje neupisane izmjene u tablici.",
+        )
+        upit = c_trazi.text_input(
+            "Traži",
+            key="upit_trazi",
+            placeholder="opis, račun, tip, datum, iznos…",
+            help=(
+                "Filtrira prikaz. Nevidljive stavke ostaju sačuvane pri "
+                "spremanju. Promjena upita odbacuje neupisane izmjene."
+            ),
+        )
+        stupci = c_stupci.multiselect(
+            "Stupci",
+            SVI_STUPCI,
+            default=SVI_STUPCI,
+            key="vidljivi_stupci",
+            help="Sakrij stupce iz prikaza. Sakriveni stupci se i dalje spremaju.",
+        )
+    return (None if odabir == SVI else odabir), upit, (stupci or SVI_STUPCI)
+
+
+def render_akcije(uredjeno, racuni, skrivene):
+    """
+    Traka naredbi ispod tablice: spremi, dodaj, dupliciraj, briši, izvoz.
+
+    Ide NAKON editora jer joj trebaju uređeni redovi i kvačice. Brisanje traži
+    potvrdu u popupu (`dijalog_brisanja`), dodavanje otvara obrazac.
+    """
+    broj = sum(je_oznacen(r) for _, r in uredjeno.iterrows())
+
+    # Stabilni `key` je nužan jer bez njega Streamlit gumb prepoznaje po
+    # parametrima i izgubi klik kad se oni promijene (npr. broj označenih).
+    # Ključ „traka_naredbi” → na telefonu dva gumba u redu (vidi stil.py).
+    with st.container(key="traka_naredbi"):
+        stupci = st.columns([1.4, 1.2, 1, 1, 1])
+    c_spremi, c_dodaj, c_kopija, c_brisi, c_izvoz = stupci
+    if c_spremi.button(
+        "Spremi promjene", icon=":material/save:", type="primary",
+        key="gumb_spremi", width="stretch",
+    ):
+        stavke, greske, novi_racuni, _ = prikupi_stavke(
+            uredjeno, racuni, zauzeti_ids=[t["ID"] for t in skrivene]
+        )
+        if greske:
+            upozori_na_greske(greske)
         else:
-            st.caption("Označi redove kvačicom „✓” u tablici (tab „Unos”).")
+            nove = [s for _, s in stavke] + list(skrivene)
+            konacni = spremi_stavke(novi_racuni, nove)
+            st.session_state["poruka_unosa"] = (
+                f"Spremljeno · ukupno stavki: {len(nove)} · računa: {len(konacni)}"
+            )
+            osvjezi_editor()
+            st.rerun()
 
-        # Sva tri gumba idu jedno ispod drugoga, punom širinom izbornika.
-        # Dupliciraj i briši su samo ikone (značenje nosi tooltip, broj označenih
-        # natpis iznad). Stabilni `key` je nužan jer bez njega Streamlit gumb
-        # prepoznaje po parametrima i izgubi klik kad se oni promijene.
-        if st.button(
-            "Dodaj stavku",
-            icon=":material/add:",
-            key="gumb_dodaj_stavku",
-            width="stretch",
-            help="Otvara popup za unos nove stavke.",
-        ):
-            st.session_state[KLJUC_POPUPA_NOVA] = True
-            # Naraz može biti otvoren samo jedan popup.
-            zatvori_popup()
-            zatvori_popup_cilja()
+    if c_dodaj.button(
+        "Dodaj stavku", icon=":material/add:", key="gumb_dodaj_stavku",
+        width="stretch", help="Otvara popup za unos nove stavke.",
+    ):
+        otvori_popup(KLJUC_POPUPA_NOVA)
 
-        if st.button(
-            "",
-            icon=":material/content_copy:",
-            key="gumb_dupliciraj",
-            width="stretch",
-            disabled=broj == 0,
-            help=f"Dupliciraj označeno ({broj}) — kopija dobiva datum = danas.",
-        ):
-            n = dupliciraj_oznacene(uredjeno, racuni, skrivene)
-            if n is not None:
-                # Poruka preživi st.rerun() — inače je novi prolaz obriše.
-                st.session_state["poruka_unosa"] = (
-                    f"Duplicirano stavki: {n} · datum = "
-                    f"{danasnji_datum().strftime('%d.%m.%Y')}."
-                )
-                osvjezi_editor()
-                st.rerun()
+    if c_kopija.button(
+        "Dupliciraj", icon=":material/content_copy:", key="gumb_dupliciraj",
+        width="stretch", disabled=broj == 0,
+        help=f"Dupliciraj označeno ({broj}) — kopija dobiva datum = danas.",
+    ):
+        n = dupliciraj_oznacene(uredjeno, racuni, skrivene)
+        if n is not None:
+            # Poruka preživi st.rerun() — inače je novi prolaz obriše.
+            st.session_state["poruka_unosa"] = (
+                f"Duplicirano stavki: {n} · datum = "
+                f"{danasnji_datum().strftime('%d.%m.%Y')}."
+            )
+            osvjezi_editor()
+            st.rerun()
 
-        # Sam klik ništa ne briše — samo zatraži potvrdu u popupu.
-        if st.button(
-            "",
-            icon=":material/delete:",
-            key="gumb_obrisi",
-            width="stretch",
-            disabled=broj == 0,
-            help=f"Obriši označeno ({broj}) — otvara popup za potvrdu.",
-        ):
-            st.session_state[KLJUC_POPUPA] = True
-            # Naraz može biti otvoren samo jedan popup.
-            zatvori_popup_nove()
-            zatvori_popup_cilja()
+    # Sam klik ništa ne briše — samo zatraži potvrdu u popupu.
+    if c_brisi.button(
+        "Obriši", icon=":material/delete:", key="gumb_obrisi",
+        width="stretch", disabled=broj == 0,
+        help=f"Obriši označeno ({broj}) — otvara popup za potvrdu.",
+    ):
+        otvori_popup(KLJUC_POPUPA)
 
-        st.divider()
-        render_alati(uredjeno, transakcije)
-        st.divider()
+    izvoz = uredjeno.drop(columns=[KOL_ODABIR, "ID"], errors="ignore").copy()
+    if "Datum" in izvoz:
+        izvoz["Datum"] = izvoz["Datum"].map(lambda c: datum_u_str(c) or "")
+    c_izvoz.download_button(
+        "CSV",
+        icon=":material/download:",
+        data=izvoz.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
+        file_name=f"stavke_{danasnji_datum().strftime('%Y-%m-%d')}.csv",
+        mime="text/csv",
+        width="stretch",
+        help="Preuzmi prikazane redove (razdjelnik „;” i zarez za decimale → Excel).",
+    )
 
-    # Popupi se otvaraju IZVAN `with st.sidebar` — inače bi ih Streamlit
-    # ugnijezdio u izbornik umjesto da ih prikaže preko cijele stranice.
+    st.caption(
+        (f"Označeno redova: **{broj}** · " if broj else "") + UPUTA
+    )
+
     # Zastavica (a ne lokalna varijabla) drži popup otvorenim i kroz puni rerun.
     if st.session_state.get(KLJUC_POPUPA):
         dijalog_brisanja(uredjeno, racuni, skrivene, broj)
@@ -700,37 +737,15 @@ def render_akcije(uredjeno, racuni, skrivene, transakcije):
         dijalog_nove_stavke(uredjeno, racuni, skrivene)
 
 
-def render_unos(racuni, transakcije):
-    """Uređivljiva tablica stavki + spremanje; uputa, alati i akcije su u izborniku."""
-    # Alati se crtaju u izborniku NAKON tablice (trebaju uređene redove), pa im
-    # vrijednosti čitamo iz prošlog prolaza — widget ih je već upisao u stanje.
-    upit = st.session_state.get("upit_trazi", "")
-    stupci = st.session_state.get("vidljivi_stupci") or SVI_STUPCI
+def stranica_unos():
+    """Filtar, uređivljiva tablica stavki i traka naredbi ispod nje."""
+    stil.crtaj(stil.naslov("Unos"))
 
     poruka = st.session_state.pop("poruka_unosa", None)
     if poruka:
-        st.success(poruka)
+        st.success(poruka, icon=":material/check_circle:")
 
-    # Filtar po mjesecu iz dizajna: zadano prošli mjesec, uvijek ponuđen čak i
-    # bez stavki; zatim „Svi mjeseci” i ostali mjeseci s podacima, najnoviji prvi.
-    prosli = prosli_mjesec(danasnji_datum())
-    s_podacima = sorted(
-        {k for k in (kljuc_mjeseca(t.get("Datum")) for t in transakcije) if k},
-        reverse=True,
-    )
-    SVI = "sve"  # string, ne None — None je Streamlitov „ništa nije odabrano”
-    odabir = st.selectbox(
-        "📅 Mjesec",
-        [prosli, SVI] + [k for k in s_podacima if k != prosli],
-        format_func=lambda k: (
-            "Svi mjeseci" if k == SVI
-            else f"Prošli mjesec — {naziv_mjeseca(k)}" if k == prosli
-            else naziv_mjeseca(k)
-        ),
-        key="filtar_mjeseca",
-        help="Promjena mjeseca odbacuje neupisane izmjene u tablici.",
-    )
-    mjesec = None if odabir == SVI else odabir
+    mjesec, upit, stupci = render_filtar(transakcije)
 
     vidljive, skrivene = filtriraj_transakcije(transakcije, upit, mjesec)
     if upit or mjesec:
@@ -738,7 +753,7 @@ def render_unos(racuni, transakcije):
             filter(None, [naziv_mjeseca(mjesec) if mjesec else "", upit and f"„{upit}”"])
         )
         st.caption(
-            f"🔍 {opis} · prikazano {len(vidljive)} od {len(transakcije)} — "
+            f"{opis} · prikazano {len(vidljive)} od {len(transakcije)} — "
             f"skrivenih {len(skrivene)} ostaje sačuvano pri spremanju."
         )
     if not vidljive and mjesec:
@@ -748,14 +763,14 @@ def render_unos(racuni, transakcije):
     df.insert(0, KOL_ODABIR, False)
 
     # Ugrađena alatna traka tablice je skrivena globalno u `stil.py` — sve njezine
-    # radnje (izvoz, traženje, stupci) stoje u bočnom izborniku.
+    # radnje (izvoz, traženje, stupci) su u kartici filtra i traci naredbi.
     with st.container(key="tablica_unosa"):
         uredjeno = st.data_editor(
             df,
             # „fixed”: ugrađeno dodavanje/brisanje redova je skriveno zajedno s
             # alatnom trakom, pa bi „dynamic” samo ostavio mrtav stupac s
-            # kvačicama za odabir. Redovi se dodaju gumbom „＋ Dodaj red”, a
-            # brišu preko „✓” + „🗑 Obriši” u izborniku.
+            # kvačicama za odabir. Redovi se dodaju gumbom „Dodaj stavku”, a
+            # brišu preko „✓” + „Obriši”.
             num_rows="fixed",
             hide_index=True,
             width="stretch",
@@ -766,7 +781,7 @@ def render_unos(racuni, transakcije):
                     KOL_ODABIR,
                     default=False,
                     width="small",
-                    help="Označi redove pa odaberi akciju u bočnom izborniku.",
+                    help="Označi redove pa odaberi akciju ispod tablice.",
                 ),
                 "Datum": st.column_config.DateColumn(
                     "Datum",
@@ -794,40 +809,27 @@ def render_unos(racuni, transakcije):
                     "Račun / izvor",
                     options=list(racuni),
                     required=True,
-                    help="Odaberi izvor. Nove izvore dodaj u „Upravljanje izvorima”.",
+                    help="Odaberi izvor. Nove izvore dodaj na stranici „Izvori”.",
                 ),
             },
         )
 
-    render_akcije(uredjeno, racuni, skrivene, transakcije)
-
-    if st.button("💾 Spremi promjene", type="primary", width="stretch"):
-        stavke, greske, novi_racuni, _ = prikupi_stavke(
-            uredjeno, racuni, zauzeti_ids=[t["ID"] for t in skrivene]
-        )
-        if greske:
-            upozori_na_greske(greske)
-        else:
-            nove = [s for _, s in stavke] + list(skrivene)
-            konacni = spremi_stavke(novi_racuni, nove)
-            st.session_state["poruka_unosa"] = (
-                f"Spremljeno · ukupno stavki: {len(nove)} · računa: {len(konacni)}"
-            )
-            osvjezi_editor()
-            st.rerun()
+    render_akcije(uredjeno, racuni, skrivene)
 
 
+# Status cilja → (ikona, boja) za karticu cilja.
 ZNAK_STATUSA = {
-    ciljevi.OSTVAREN: "✅",
-    ciljevi.PROMASEN: "❌",
-    ciljevi.NA_PUTU: "🟢",
-    ciljevi.MANJAK: "🟠",
+    ciljevi.OSTVAREN: ("check_circle", stil.ZELENA),
+    ciljevi.PROMASEN: ("cancel", stil.CRVENA),
+    ciljevi.NA_PUTU: ("trending_up", stil.NAGLASAK),
+    ciljevi.MANJAK: ("warning", stil.ZUTA),
 }
 
 
-def _prikazi_cilj(n):
-    """Jedan cilj kao kartica iz dizajna (cilj, projekcija, dani, traka)."""
-    stil.crtaj(stil.kartica_cilja(n, ZNAK_STATUSA.get(n["Status"], "•")))
+def _kartica_cilja(n):
+    """Jedan cilj kao kartica-postavka (cilj, projekcija, dani, traka)."""
+    ikona, boja = ZNAK_STATUSA.get(n["Status"], ("flag", stil.TEKST_2))
+    return stil.kartica_cilja(n, ikona, boja)
 
 
 KLJUC_POPUPA_CILJ = "ciljevi_popup_otvoren"
@@ -865,7 +867,7 @@ def dijalog_ciljeva(racuni, transakcije, danas):
 
     st.caption(
         "Cilj = koliko želiš da OSTANE na izvoru do zadanog roka. Projekcija "
-        "uzima sve unesene stavke do tog datuma, pa se poklapa s tabom „Buduće”. "
+        "uzima sve unesene stavke do tog datuma, pa se poklapa sa stranicom „Buduće”. "
         f"Izvor „{ciljevi.UKUPNO}” je cilj za zbroj svih računa."
     )
 
@@ -951,57 +953,11 @@ def dijalog_ciljeva(racuni, transakcije, danas):
             st.error(str(e))
 
 
-def render_ciljevi_gumb():
-    """
-    Odjeljak „Ciljevi po izvorima” u izborniku, ispod „Upravljanje izvorima”.
-
-    Samo gumb koji otvara popup (novi / izmjena / brisanje) — pregled napretka
-    stoji u tabu „🔮 Buduće”, gdje mu je i mjesto jer je riječ o projekciji.
-    """
-    st.header("🎯 Ciljevi po izvorima")
-    poruka = st.session_state.pop("poruka_ciljeva", None)
+def poruka_iz_stanja(kljuc):
+    """Pokaži (i potroši) poruku spremljenu prije st.rerun()."""
+    poruka = st.session_state.pop(kljuc, None)
     if poruka:
-        st.success(poruka)
-
-    st.caption("Pregled napretka je u tabu „🔮 Buduće”.")
-    if st.button(
-        "Postavi cilj",
-        icon=":material/flag:",
-        key="gumb_postavi_cilj",
-        width="stretch",
-        help="Otvara popup za novi cilj, izmjenu ili brisanje postojećeg.",
-    ):
-        st.session_state[KLJUC_POPUPA_CILJ] = True
-        # Naraz može biti otvoren samo jedan popup.
-        zatvori_popup()
-        zatvori_popup_nove()
-
-
-def render_ciljevi_pregled(racuni, transakcije, danas):
-    """Napredak po ciljevima — prikazuje se u tabu „Buduće”."""
-    st.subheader("🎯 Ciljevi po izvorima")
-    try:
-        popis = ciljevi.ucitaj()
-    except OSError as e:
-        st.error(f"Ne mogu pročitati ciljeve: {e}")
-        return
-
-    napreci = ciljevi.pregled(popis, racuni, transakcije, danas=danas)
-    if not napreci:
-        st.caption(
-            "Nema postavljenih ciljeva — postavi ih gumbom „Postavi cilj” u "
-            "bočnom izborniku."
-        )
-        return
-
-    for n in napreci:
-        _prikazi_cilj(n)
-    with st.expander("📋 Tablica svih ciljeva"):
-        st.dataframe(
-            ciljevi.redovi_za_tablicu(popis, racuni, transakcije, danas=danas),
-            hide_index=True,
-            width="stretch",
-        )
+        st.success(poruka, icon=":material/check_circle:")
 
 
 # --- Učitavanje podataka (isti izvor kao CLI) --------------------------------
@@ -1011,10 +967,6 @@ except OSError as e:
     st.error(f"Greška pri učitavanju podataka: {e}")
     st.stop()
 
-
-# =============================================================================
-# GLAVNI PROSTOR
-# =============================================================================
 redovi = logika.preracunaj_tablicu(racuni, transakcije)
 danas = danasnji_datum()
 stanja_danas = logika.stanja_po_racunima(racuni, transakcije, na_dan=danas)
@@ -1024,12 +976,7 @@ ima_buducnost = bool(zadnji_datum_str and parsiraj_datum(zadnji_datum_str) > dan
 
 
 def render_hero():
-    """
-    Hero traka iz dizajna: ukupno danas + projekcija sa razlikom.
-
-    Crta se JEDNOM, iznad tabova — u dizajnu stoji ispod marke i ostaje vidljiva
-    bez obzira na odabrani tab.
-    """
+    """Zaglavlje s ukupnim stanjem danas i projekcijom (vidi `stil.hero`)."""
     stil.crtaj(
         stil.hero(
             sum(stanja_danas.values()),
@@ -1040,68 +987,109 @@ def render_hero():
     )
 
 
-stil.crtaj(stil.marka())
-render_hero()
+def zadnje_promjene():
+    """{račun: 'Zadnja promjena DD.MM.YYYY'} — za sivi redak na kartici računa."""
+    zadnja = {}
+    for t in transakcije:
+        d = logika._datum_stavke(t)
+        if d is not None and d <= danas and d > zadnja.get(t["Račun"], date.min):
+            zadnja[t["Račun"]] = d
+    return {r: f"Zadnja promjena {d.strftime('%d.%m.%Y')}" for r, d in zadnja.items()}
 
-# Tabovi kao segmentirani izbornik; boje su u stil.TABOVI / stil._css_tabova().
-tab_danas, tab_buduce, tab_unos, tab_detalji = st.tabs(
-    [f"{ikona} {naziv}" for ikona, naziv, _, _ in stil.TABOVI]
-)
 
-# --- Tab: Danas --------------------------------------------------------------
-with tab_danas:
-    stil.crtaj(stil.oznaka(f"Stanja po računima · {danas.strftime('%d.%m.%Y')}"))
-    stil.crtaj(stil.kartica_stanja(racuni, stanja_danas))
+# Tip stavke → (ikona, boja, predznak) za kartice nadolazećih stavki.
+IZGLED_TIPA = {
+    logika.PRIHOD: ("trending_up", stil.ZELENA, "+"),
+    logika.RASHOD: ("trending_down", stil.CRVENA, "−"),
+    logika.STANJE: ("account_balance", stil.TEKST_2, "="),
+}
 
-# --- Tab: Buduće -------------------------------------------------------------
-with tab_buduce:
-    render_ciljevi_pregled(racuni, transakcije, danas)
-    stil.crtaj(stil.oznaka("Buduće stavke po računima"))
-    if not ima_buducnost:
-        st.info("Nema unesenih stavki nakon današnjeg dana.")
-    else:
-        for r in racuni:
-            redovi_r = redovi_sljedivosti(
-                racuni, transakcije, danas, racun=r, buducnost=True
-            )
-            if not redovi_r:
-                continue  # račun bez budućih stavki se ne prikazuje
-            bud = stanja_buduce.get(r, 0.0)
-            raz = bud - stanja_danas.get(r, 0.0)
-            strelica = "▲" if raz > 0 else ("▼" if raz < 0 else "•")
-            # Expander (a ne vlastiti HTML) jer sadržaj mora biti sklopiv —
-            # to Streamlit ume, a čisti HTML u `st.markdown` ne bi.
-            with st.expander(
-                f"{r} · {stil.eur(bud)} "
-                f"({strelica} {stil.eur(abs(raz))} · {len(redovi_r)} stavki)"
-            ):
-                st.dataframe(redovi_r, hide_index=True, width="stretch")
 
-        ukupno = sum(stanja_buduce.values())
-        stil.crtaj(
-            stil.red_zbroja(
-                "Ukupno raspoloživo",
-                ukupno,
-                razlika=ukupno - sum(stanja_danas.values()),
+def kartice_nadolazecih(koliko=5):
+    """Prvih `koliko` budućih stavki kao kartice-postavke."""
+    buduce = [
+        t for t in sorted(transakcije, key=logika.kljuc_datuma)
+        if (d := logika._datum_stavke(t)) is not None and d > danas
+    ][:koliko]
+    kartice = []
+    for t in buduce:
+        ikona, boja, znak = IZGLED_TIPA.get(t["Tip"], IZGLED_TIPA[logika.STANJE])
+        kartice.append(
+            stil.kartica(
+                stil.ikona(ikona, boja),
+                t["Opis"],
+                f"{stil._e(t['Datum'])} · {stil._e(t['Račun'])}",
+                f'<span class="fin-broj" style="color:{boja}">'
+                f"{znak}{stil.eur(t['Iznos'])}</span>",
             )
         )
-        with st.expander("Sve buduće stavke zajedno"):
-            st.dataframe(
-                redovi_sljedivosti(
-                    racuni, transakcije, danas, racun=None, buducnost=True
-                ),
-                hide_index=True,
-                width="stretch",
-            )
+    return kartice
 
-# --- Tab: Unos ---------------------------------------------------------------
-with tab_unos:
-    render_unos(racuni, transakcije)
 
-# --- Tab: Detalji ------------------------------------------------------------
-with tab_detalji:
-    # Sve / Prošlost / Buduće kao u dizajnu; ponovni klik na odabrano ga
-    # odznači (None), što tretiramo kao „Sve”.
+# =============================================================================
+# STRANICE  (svaka je jedna stavka lijeve navigacije, kao u PowerToys)
+# =============================================================================
+
+def stranica_danas():
+    stil.crtaj(stil.naslov("Danas"))
+    render_hero()
+    stil.crtaj(stil.oznaka(f"Stanja po računima · {danas.strftime('%d.%m.%Y')}"))
+    stil.crtaj(stil.kartica_stanja(racuni, stanja_danas, zadnje_promjene()))
+
+    nadolazece = kartice_nadolazecih()
+    if nadolazece:
+        stil.crtaj(stil.oznaka("Sljedeće stavke"))
+        stil.crtaj(stil.grupa(nadolazece))
+
+
+def stranica_buduce():
+    stil.crtaj(stil.naslov("Buduće"))
+    render_hero()
+    stil.crtaj(stil.oznaka("Buduće stavke po računima"))
+    if not ima_buducnost:
+        st.info("Nema unesenih stavki nakon današnjeg dana.", icon=":material/info:")
+        return
+
+    for r in racuni:
+        redovi_r = redovi_sljedivosti(
+            racuni, transakcije, danas, racun=r, buducnost=True
+        )
+        if not redovi_r:
+            continue  # račun bez budućih stavki se ne prikazuje
+        bud = stanja_buduce.get(r, 0.0)
+        raz = bud - stanja_danas.get(r, 0.0)
+        strelica = "▲" if raz > 0 else ("▼" if raz < 0 else "•")
+        # Expander (a ne vlastiti HTML) jer sadržaj mora biti sklopiv —
+        # to Streamlit ume, a čisti HTML u `st.markdown` ne bi.
+        with st.expander(
+            f"{r} · {stil.eur(bud)} "
+            f"({strelica} {stil.eur(abs(raz))} · {len(redovi_r)} stavki)",
+            icon=":material/account_balance:",
+        ):
+            st.dataframe(redovi_r, hide_index=True, width="stretch")
+
+    ukupno = sum(stanja_buduce.values())
+    stil.crtaj(
+        stil.red_zbroja(
+            "Ukupno raspoloživo",
+            ukupno,
+            razlika=ukupno - sum(stanja_danas.values()),
+        )
+    )
+    with st.expander("Sve buduće stavke zajedno", icon=":material/list:"):
+        st.dataframe(
+            redovi_sljedivosti(
+                racuni, transakcije, danas, racun=None, buducnost=True
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+
+
+def stranica_detalji():
+    stil.crtaj(stil.naslov("Detalji"))
+    # Sve / Prošlost / Buduće; ponovni klik na odabrano ga odznači (None), što
+    # tretiramo kao „Sve”.
     nacin = st.segmented_control(
         "Prikaz",
         ["Sve", "Prošlost", "Buduće"],
@@ -1119,75 +1107,154 @@ with tab_detalji:
 
     stil.crtaj(stil.oznaka(f"Revizijski trag — {len(prikazani)} stavki"))
     if not redovi:
-        st.info("Baza je prazna — dodaj prvu stavku u tabu „Unos”.")
+        st.info("Baza je prazna — dodaj prvu stavku na stranici „Unos”.")
     elif not prikazani:
         st.info("Nema stavki za odabrani prikaz.")
     elif nacin == "Prošlost":
-        # Prošlost je grupirana po mjesecima, najnoviji prvi, sve sklopljeno —
-        # kao u dizajnu. Stanja u redovima su i dalje kumulativna.
+        # Prošlost je grupirana po mjesecima, najnoviji prvi, sve sklopljeno.
+        # Stanja u redovima su i dalje kumulativna.
         po_mjesecima = {}
         for r in prikazani:
             po_mjesecima.setdefault(kljuc_mjeseca(r["Datum"]), []).append(r)
         for kljuc in sorted(po_mjesecima, reverse=True):
             grupa = po_mjesecima[kljuc]
             rijec = "stavka" if len(grupa) == 1 else "stavki"
-            with st.expander(f"{naziv_mjeseca(kljuc)} · {len(grupa)} {rijec}"):
+            with st.expander(
+                f"{naziv_mjeseca(kljuc)} · {len(grupa)} {rijec}",
+                icon=":material/calendar_month:",
+            ):
                 stil.crtaj(stil.tablica_sljedivosti(grupa, racuni, danas))
     else:
         stil.crtaj(stil.tablica_sljedivosti(prikazani, racuni, danas))
 
 
-# --- Bočni izbornik: upravljanje izvorima/računima ---------------------------
-with st.sidebar:
-    st.header("🏦 Upravljanje izvorima")
-    st.caption(
-        "Preddefinirani (zaštićeni) izvori — ne mogu se obrisati: "
-        + ", ".join(logika.ZASTICENI_RACUNI)
-    )
+def stranica_izvori():
+    """Popis izvora, dodavanje i brisanje (s premještanjem stavki)."""
+    stil.crtaj(stil.naslov("Izvori"))
+    poruka_iz_stanja("poruka_izvora")
 
-    with st.form("dodaj_racun", clear_on_submit=True):
-        naziv = st.text_input("Naziv novog izvora / računa (npr. Wallet, Kredit)")
-        if st.form_submit_button("➕ Dodaj izvor"):
+    stil.crtaj(stil.oznaka("Tvoji izvori"))
+    stil.crtaj(stil.grupa([
+        stil.kartica(
+            stil.znak_racuna(r),
+            r,
+            "Zaštićen — ne može se obrisati" if logika.je_zasticen(r)
+            else "Može se obrisati",
+            stil.ikona("lock", stil.TEKST_3, 16) if logika.je_zasticen(r) else "",
+        )
+        for r in racuni
+    ]))
+
+    stil.crtaj(stil.oznaka("Dodaj izvor"))
+    with (
+        st.container(key="kartica_dodaj_izvor"),
+        st.form("dodaj_racun", clear_on_submit=True, border=False),
+    ):
+        c_naziv, c_gumb = st.columns([3, 1], vertical_alignment="bottom")
+        naziv = c_naziv.text_input(
+            "Naziv novog izvora / računa", placeholder="npr. Wallet, Kredit"
+        )
+        if c_gumb.form_submit_button(
+            "Dodaj", icon=":material/add:", type="primary", width="stretch"
+        ):
             try:
                 if logika.dodaj_racun(racuni, naziv):
                     logika.spremi(racuni, transakcije)
-                    st.success(f"Izvor „{naziv.strip()}” dodan.")
+                    st.session_state["poruka_izvora"] = f"Izvor „{naziv.strip()}” dodan."
                     st.rerun()
                 else:
                     st.info(f"Izvor „{naziv.strip()}” već postoji.")
             except ValueError as e:
                 st.warning(str(e))
 
-    st.divider()
+    stil.crtaj(stil.oznaka("Obriši izvor"))
     obrisivi = [r for r in racuni if not logika.je_zasticen(r)]
     if not obrisivi:
         st.caption("Trenutno nema izvora koji se mogu obrisati.")
-    else:
-        za_brisanje = st.selectbox("Obriši izvor", obrisivi, key="del_racun")
-        # NE zvati ovo `ciljevi` — to je naziv uvezenog modula, pa bi pridruživanje
-        # na razini modula pregazilo `import ciljevi` i srušilo popup ciljeva
-        # (`ciljevi.ucitaj()` na listi) čim postoji ijedan obrisiv izvor.
+        return
+    with st.container(key="kartica_obrisi_izvor"):
+        c_izvor, c_cilj = st.columns(2)
+        za_brisanje = c_izvor.selectbox("Izvor", obrisivi, key="del_racun")
+        # NE zvati ovo `ciljevi` — to je naziv uvezenog modula.
         odredista = [r for r in racuni if r != za_brisanje]
-        cilj = st.selectbox("Premjesti njegove stavke u", odredista, key="cilj_racun")
-        if st.button("🗑 Obriši izvor i premjesti stavke", type="primary"):
+        cilj = c_cilj.selectbox("Premjesti njegove stavke u", odredista, key="cilj_racun")
+        if st.button(
+            "Obriši izvor i premjesti stavke", icon=":material/delete:",
+            key="gumb_obrisi_izvor",
+        ):
             try:
                 n = logika.obrisi_racun(racuni, transakcije, za_brisanje, cilj)
                 logika.spremi(racuni, transakcije)
-                st.success(
+                st.session_state["poruka_izvora"] = (
                     f"Izvor „{za_brisanje}” obrisan · premješteno stavki: {n} → „{cilj}”."
                 )
                 st.rerun()
             except ValueError as e:
                 st.warning(str(e))
 
-    # Ciljevi stoje ispod upravljanja izvorima — vežu se na iste izvore.
-    st.divider()
-    render_ciljevi_gumb()
 
-# Popup ciljeva se crta IZVAN `with st.sidebar` (inače bi bio ugniježđen u
-# izborniku) i tek nakon njega — a nikad uz drugi popup, jer Streamlit dopušta
-# samo jedan dijalog po prolazu.
-if st.session_state.get(KLJUC_POPUPA_CILJ) and not (
-    st.session_state.get(KLJUC_POPUPA) or st.session_state.get(KLJUC_POPUPA_NOVA)
-):
-    dijalog_ciljeva(racuni, transakcije, danas)
+def stranica_ciljevi():
+    """Napredak po ciljevima + gumb koji otvara popup (novi / izmjena / brisanje)."""
+    stil.crtaj(stil.naslov("Ciljevi"))
+    poruka_iz_stanja("poruka_ciljeva")
+
+    desno = stil.kartica_s_widgetom(
+        "postavi_cilj", "flag", "Postavi ili uredi cilj",
+        "Koliko želiš da ostane na izvoru do zadanog roka.",
+    )
+    if desno.button(
+        "Postavi cilj", icon=":material/flag:", type="primary",
+        key="gumb_postavi_cilj", width="stretch",
+        help="Otvara popup za novi cilj, izmjenu ili brisanje postojećeg.",
+    ):
+        otvori_popup(KLJUC_POPUPA_CILJ)
+
+    try:
+        popis = ciljevi.ucitaj()
+    except OSError as e:
+        st.error(f"Ne mogu pročitati ciljeve: {e}")
+        return
+
+    napreci = ciljevi.pregled(popis, racuni, transakcije, danas=danas)
+    stil.crtaj(stil.oznaka("Napredak"))
+    if not napreci:
+        st.caption("Nema postavljenih ciljeva — postavi prvi gumbom iznad.")
+    else:
+        stil.crtaj(stil.grupa([_kartica_cilja(n) for n in napreci]))
+        with st.expander("Tablica svih ciljeva", icon=":material/table:"):
+            st.dataframe(
+                ciljevi.redovi_za_tablicu(popis, racuni, transakcije, danas=danas),
+                hide_index=True,
+                width="stretch",
+            )
+
+    if st.session_state.get(KLJUC_POPUPA_CILJ):
+        dijalog_ciljeva(racuni, transakcije, danas)
+
+
+# =============================================================================
+# NAVIGACIJA  (lijevi izbornik; na telefonu se sklapa iza ikone ☰)
+# =============================================================================
+navigacija = st.navigation(
+    {
+        "": [
+            # Zadana stranica uvijek živi na „/” (Streamlit ignorira url_path).
+            st.Page(stranica_danas, title="Danas", icon=":material/home:",
+                    default=True),
+            st.Page(stranica_buduce, title="Buduće", icon=":material/trending_up:",
+                    url_path="buduce"),
+            st.Page(stranica_unos, title="Unos", icon=":material/edit_note:",
+                    url_path="unos"),
+            st.Page(stranica_detalji, title="Detalji", icon=":material/receipt_long:",
+                    url_path="detalji"),
+        ],
+        "Upravljanje": [
+            st.Page(stranica_izvori, title="Izvori", icon=":material/account_balance:",
+                    url_path="izvori"),
+            st.Page(stranica_ciljevi, title="Ciljevi", icon=":material/flag:",
+                    url_path="ciljevi"),
+        ],
+    },
+    position="sidebar",
+)
+navigacija.run()

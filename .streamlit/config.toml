@@ -1,59 +1,58 @@
-# Tema preslikana iz Figma dizajna (vidi stil.py — isti tokeni na jednom mjestu).
+# Tema po uzoru na PowerToys postavke (Windows 11 / Fluent, tamna) — vidi
+# stil.py, gdje su isti tokeni na jednom mjestu.
 #
-# Namjerno je `base = "dark"`, a ne praćenje sistemske postavke: dizajn je
-# napravljen kao tamna ploča (#1a1a1a) s prigušenim rubovima, pa bi u svijetloj
-# temi izgubio smisao — svjetli tekst na svijetloj podlozi.
+# Namjerno je `base = "dark"`, a ne praćenje sistemske postavke: kartice,
+# sloj sadržaja i naglasak su složeni za tamnu Micu, pa bi u svijetloj temi
+# dio CSS-a iz stil.py izgubio kontrast.
 #
 # Sve što Streamlit ume obojiti sam stoji OVDJE; stil.py dodaje CSS samo za ono
-# što tema ne pokriva (tabovi, kartice, tablica sljedivosti).
+# što tema ne pokriva (navigacija, kartice-postavke, tablica sljedivosti).
 
 [theme]
 base = "dark"
 
-# Boje — identične `:root` varijablama iz Figma verzije.
-primaryColor = "#c96442"              # naglasak (gumbi, fokus)
-backgroundColor = "#1a1a1a"           # podloga stranice
-secondaryBackgroundColor = "#262626"  # kartice, polja, tablice
-textColor = "#ececec"
-borderColor = "#2f2f2f"
-linkColor = "#c96442"
-codeBackgroundColor = "#212121"
-codeTextColor = "#ececec"
+# Boje — Fluent tamni tokeni.
+primaryColor = "#60cdff"              # zadani Windows naglasak (tamna tema)
+backgroundColor = "#272727"           # sloj sadržaja
+secondaryBackgroundColor = "#2d2d2d"  # polja, tablice (ControlFillColorDefault)
+textColor = "#ffffff"
+borderColor = "#3a3a3a"
+linkColor = "#60cdff"
+codeBackgroundColor = "#202020"
+codeTextColor = "#ffffff"
 
-# Semantičke boje (koriste ih st.metric delta, st.success/error, badge-evi).
-greenColor = "#34d399"
-redColor = "#f87171"
-orangeColor = "#fb923c"
-violetColor = "#8b5cf6"
-blueColor = "#3b82f6"
-yellowColor = "#f59e0b"
-grayColor = "#8a8a8a"
+# Semantičke boje (st.success/error, badge-evi) — Fluent „System*” boje.
+greenColor = "#6ccb5f"
+redColor = "#ff99a4"
+orangeColor = "#fce100"
+violetColor = "#c4b5fd"
+blueColor = "#60cdff"
+yellowColor = "#fce100"
+grayColor = "#9a9a9a"
 
-# Tipografija — Inter za tekst, DM Mono za brojeve (kao u Figmi).
-# Datoteke dolaze s Google Fontsa; `@import` je u stil.py.
-font = "Inter, ui-sans-serif, system-ui, sans-serif"
-headingFont = "Inter, ui-sans-serif, system-ui, sans-serif"
-codeFont = "DM Mono, ui-monospace, monospace"
-baseFontSize = 15
+# Tipografija — Segoe UI Variable na Windowsu; na telefonu sistemski font
+# (Roboto / San Francisco), što je i ono što bi Fluent tamo koristio.
+font = "Segoe UI Variable Text, Segoe UI, system-ui, -apple-system, Roboto, sans-serif"
+headingFont = "Segoe UI Variable Display, Segoe UI, system-ui, -apple-system, Roboto, sans-serif"
+codeFont = "Cascadia Mono, Consolas, ui-monospace, monospace"
+baseFontSize = 14
 
-# Zaobljenja i rubovi — `--radius: 10px` iz Figme.
-baseRadius = "10px"
-buttonRadius = "8px"
+# Zaobljenja — ControlCornerRadius (4 px) i OverlayCornerRadius (8 px).
+baseRadius = "4px"
+buttonRadius = "4px"
 showWidgetBorder = true
-showSidebarBorder = true
+showSidebarBorder = false
 
-# Tablice: zaglavlje tamnije od tijela, rub prigušen kao kartice.
-dataframeHeaderBackgroundColor = "#212121"
-dataframeBorderColor = "#2f2f2f"
+dataframeHeaderBackgroundColor = "#2b2b2b"
+dataframeBorderColor = "#1d1d1d"
 
-# Grafovi (ako se dodaju) prate boje tabova iz dizajna.
-chartCategoricalColors = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#c96442", "#f87171"]
+chartCategoricalColors = ["#60cdff", "#6ccb5f", "#fce100", "#ff99a4", "#c4b5fd", "#8cc4ff"]
 
 [theme.sidebar]
-# Bočni izbornik je u dizajnu tamniji od glavnog prostora (#212121 vs #1a1a1a).
-backgroundColor = "#212121"
-secondaryBackgroundColor = "#262626"
-borderColor = "#2f2f2f"
+# Navigacija leži na Mici, tamnijoj od sloja sadržaja — kao NavigationView.
+backgroundColor = "#202020"
+secondaryBackgroundColor = "#2d2d2d"
+borderColor = "#202020"
 
 [client]
 # Sakrij „hamburger” izbornik razvijatelja radi čišćeg mobilnog prikaza.

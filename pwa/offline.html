@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#202020" />
+  <title>Finan — nema veze</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #202020; color: #fff;
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    main { height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
+    .kartica { background: #2b2b2b; border: 1px solid #1d1d1d; border-radius: 8px;
+      padding: 24px; max-width: 360px; text-align: center; }
+    h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+    p { font-size: 14px; color: #c8c8c8; margin: 0 0 20px; line-height: 1.45; }
+    button { background: #60cdff; color: #000; border: 0; border-radius: 4px;
+      padding: 8px 20px; font: inherit; font-size: 14px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="kartica">
+      <h1>Nema internetske veze</h1>
+      <p>Finan čita podatke izravno s poslužitelja i ništa ne sprema na uređaj. Spoji se na mrežu pa pokušaj ponovno.</p>
+      <button onclick="location.reload()">Pokušaj ponovno</button>
+    </div>
+  </main>
+</body>
+</html>
