@@ -41,6 +41,21 @@ Putanje i pohrana su podesivi varijablama okruženja:
 Upute za deploy na Google Cloud Run (privatno, s bazom u GCS-u) su u
 [DEPLOY.md](DEPLOY.md).
 
+## Aplikacija na telefonu
+
+Web verzija se može instalirati kao prava aplikacija (PWA): dobije ikonu na
+početnom zaslonu i otvara se preko cijelog ekrana, bez adresne trake.
+
+- **Android (Chrome):** otvori adresu aplikacije → izbornik ⋮ → **Instaliraj
+  aplikaciju** (ili „Dodaj na početni zaslon”).
+- **iPhone (Safari):** otvori adresu → gumb za dijeljenje → **Dodaj na
+  početni zaslon**.
+
+Datoteke su u [pwa/](pwa/); [pwa/ugradi.py](pwa/ugradi.py) ih pri Docker
+buildu ugrađuje u Streamlit. Lokalno, za probu: `uv run pwa/ugradi.py`.
+Ikone se ponovno crtaju s `uv run pwa/ikone.py`. Aplikacija i dalje treba
+internet — podaci se ne spremaju na uređaj.
+
 ## Napomena o privatnosti
 
 Osobni financijski podaci (`financije_baza.json`) i tajne (lozinke, ključevi)

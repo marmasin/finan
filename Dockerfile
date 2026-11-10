@@ -13,6 +13,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Kod aplikacije (baza NE ide u sliku — čuva se u GCS-u; vidi .dockerignore).
 COPY . .
 
+# Instalabilna aplikacija za telefon (PWA): manifest, ikone i service worker
+# u Streamlitov index.html — vidi pwa/ugradi.py.
+RUN python pwa/ugradi.py
+
 # Cloud Run šalje port kroz varijablu $PORT. Streamlit ga mora slušati na 0.0.0.0.
 ENV PORT=8080
 EXPOSE 8080

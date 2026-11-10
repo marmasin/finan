@@ -1,19 +1,20 @@
 """
-Izgled web verzije — tokeni, CSS i HTML gradivni blokovi (Figma dizajn).
+Izgled web verzije — tokeni, CSS i HTML gradivni blokovi (Windows 11 / Fluent,
+po uzoru na PowerToys postavke).
 
 Zašto ovaj modul postoji: Streamlitove ugrađene komponente ne mogu dati izgled
-iz dizajna (kartice s prigušenim rubom, brojevi u monospaceu, obojene značke,
-traka napretka cilja). Zato se prikazi koji su SAMO ZA ČITANJE — „Danas”,
-„Buduće”, „Detalji” — crtaju kao vlastiti HTML, a Streamlit widgeti se koriste
-tamo gdje treba interakcija („Unos”).
+PowerToys postavki (kartice-postavke s ikonom, naslovom i opisom lijevo te
+vrijednošću desno, sloj sadržaja zaobljen uz navigaciju, Fluent boje). Zato se
+prikazi koji su SAMO ZA ČITANJE crtaju kao vlastiti HTML, a Streamlit widgeti
+se koriste tamo gdje treba interakcija i samo se preboje CSS-om.
 
 Podjela odgovornosti:
     • .streamlit/config.toml — sve što Streamlit ume obojiti sam (tema, widgeti)
     • ovaj modul            — tokeni, dopunski CSS i HTML za vlastite prikaze
     • logika.py / ciljevi.py — svi izračuni i podaci (ovdje se ništa ne računa)
 
-Tokeni su preslikani iz `:root` varijabli Figma verzije, pa su boje na jednom
-mjestu i za temu i za CSS.
+Tokeni su Fluentove tamne „theme resources” vrijednosti (Mica, Layer, Card,
+TextFillColor…), preračunate u neprozirne boje jer Streamlit ne zna za Micu.
 """
 import html
 from datetime import date, datetime
@@ -23,54 +24,56 @@ import streamlit as st
 import logika
 
 # ---------------------------------------------------------------------------
-# TOKENI  (identični `:root` varijablama iz Figma dizajna)
+# TOKENI  (Fluent / WinUI 3, tamna tema)
 # ---------------------------------------------------------------------------
 
-POZADINA = "#1a1a1a"
-IZBORNIK = "#212121"
-KARTICA = "#262626"
-TEKST = "#ececec"
-PRIGUSENO = "#8a8a8a"
-NAGLASAK = "#c96442"
-NAGLASAK_SVJETLIJI = "#e8956d"
+MICA = "#202020"          # podloga prozora i navigacije
+SLOJ = "#272727"          # sloj sadržaja (LayerFillColorDefault preko Mice)
+KARTICA = "#2b2b2b"       # CardBackgroundFillColorDefault
+KARTICA_HOVER = "#323232"
+RUB_KARTICE = "#1d1d1d"   # CardStrokeColorDefault
+RAZDJELNIK = "rgba(255, 255, 255, 0.0837)"
+TEKST = "#ffffff"
+TEKST_2 = "#c5c5c5"       # TextFillColorSecondary
+TEKST_3 = "#9a9a9a"       # TextFillColorTertiary
+NAGLASAK = "#60cdff"      # zadani Windows naglasak u tamnoj temi
+NAGLASAK_PLOHA = "rgba(96, 205, 255, 0.12)"
 
-RUB = "rgba(255, 255, 255, 0.08)"
-RUB_BLAGI = "rgba(255, 255, 255, 0.06)"
-PLOHA_BLAGA = "rgba(255, 255, 255, 0.04)"
+ZELENA = "#6ccb5f"        # SystemFillColorSuccess
+CRVENA = "#ff99a4"        # SystemFillColorCritical
+ZUTA = "#fce100"          # SystemFillColorCaution
 
-ZELENA = "#34d399"
-CRVENA = "#f87171"
-NARANCASTA = "#fb923c"
+# Ikone su Material Symbols (najbliže Segoe Fluent Icons što radi i na
+# telefonu). Google Fonts šalje samo ove znakove — popis MORA biti abecedni.
+IKONE = sorted({
+    "account_balance", "account_balance_wallet", "add", "calendar_month",
+    "cancel", "check_circle", "error", "flag", "history", "lock", "menu",
+    "payments",
+    "receipt_long", "savings", "schedule", "shield", "trending_down",
+    "trending_up", "warning",
+})
 
-# (ikona, naziv, ključ, boja) — boje su iz TABS konstante Figma verzije.
-TABOVI = [
-    ("📅", "Danas", "danas", "#3b82f6"),      # plava — sadašnjost
-    ("🔮", "Buduće", "buduce", "#8b5cf6"),    # ljubičasta — projekcija
-    ("✏️", "Unos", "unos", "#f59e0b"),        # jantarna — uređivanje
-    ("📊", "Detalji", "detalji", "#10b981"),  # zelena — analiza
-]
-
-# Boja kružića uz naziv računa: (podloga, tekst). Iz `BankIcon` Figma verzije —
-# prepoznavanje po dijelu naziva, pa radi i za „Erste Tekući”, „PBZ Žiro”…
+# Boja pločice uz naziv računa: (podloga, tekst) — prepoznavanje po dijelu
+# naziva, pa radi i za „Erste Tekući”, „PBZ Žiro”…
 _BOJE_RACUNA = [
-    (("erste",), "rgba(227, 6, 19, 0.15)", "#f87171"),
-    (("pbz",), "rgba(0, 48, 135, 0.30)", "#4a8edb"),
-    (("gotovina", "keš", "kes", "cash"), "rgba(16, 185, 129, 0.12)", ZELENA),
-    (("revolut",), "rgba(124, 92, 252, 0.18)", "#8b5cf6"),
+    (("erste",), "rgba(255, 99, 99, 0.16)", "#ff8f8f"),
+    (("pbz",), "rgba(96, 165, 250, 0.18)", "#8cc4ff"),
+    (("gotovina", "keš", "kes", "cash"), "rgba(108, 203, 95, 0.16)", ZELENA),
+    (("revolut",), "rgba(167, 139, 250, 0.18)", "#c4b5fd"),
 ]
 
 
 def boja_racuna(naziv):
-    """(podloga, boja_teksta) za kružić računa — po nazivu, s općim padom."""
+    """(podloga, boja_teksta) za pločicu računa — po nazivu, s općim padom."""
     n = (naziv or "").lower()
     for kljucne, podloga, tekst in _BOJE_RACUNA:
         if any(k in n for k in kljucne):
             return podloga, tekst
-    return "rgba(201, 100, 66, 0.14)", NAGLASAK
+    return NAGLASAK_PLOHA, NAGLASAK
 
 
 def inicijali(naziv):
-    """Do dva znaka za kružić računa: 'PBZ Žiro' → 'PB', 'Gotovina' → 'GO'."""
+    """Do dva znaka za pločicu računa: 'PBZ Žiro' → 'PB', 'Gotovina' → 'GO'."""
     return (naziv or "?").strip()[:2].upper()
 
 
@@ -81,254 +84,280 @@ def inicijali(naziv):
 def _tokeni_css():
     """CSS varijable iz Python tokena — ostatak stilske datoteke koristi var()."""
     return f"""
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0..1,0&icon_names={",".join(IKONE)}&display=block');
     :root {{
-        --fin-pozadina: {POZADINA};
-        --fin-izbornik: {IZBORNIK};
+        --fin-mica: {MICA};
+        --fin-sloj: {SLOJ};
         --fin-kartica: {KARTICA};
+        --fin-kartica-hover: {KARTICA_HOVER};
+        --fin-rub-kartice: {RUB_KARTICE};
+        --fin-razdjelnik: {RAZDJELNIK};
         --fin-tekst: {TEKST};
-        --fin-priguseno: {PRIGUSENO};
+        --fin-tekst-2: {TEKST_2};
+        --fin-tekst-3: {TEKST_3};
         --fin-naglasak: {NAGLASAK};
-        --fin-rub: {RUB};
-        --fin-rub-blagi: {RUB_BLAGI};
-        --fin-ploha: {PLOHA_BLAGA};
+        --fin-naglasak-ploha: {NAGLASAK_PLOHA};
         --fin-zelena: {ZELENA};
         --fin-crvena: {CRVENA};
+        --fin-zuta: {ZUTA};
     }}"""
-
-
-def _css_tabova():
-    """
-    Tabovi kao „segmentirani” izbornik iz dizajna: prigušene pilule, a odabrana
-    dobije prozirnu podlogu i tekst u boji svog taba.
-
-    Boja se veže na `:nth-of-type(n)` jer Streamlit tabovima ne daje stabilan
-    razred — redoslijed je zadan konstantom TABOVI, pa je indeks pouzdan.
-    """
-    pravila = []
-    for i, (_, naziv, _, boja) in enumerate(TABOVI, start=1):
-        pravila.append(f"""
-    /* {naziv} */
-    div[data-testid="stTabs"] button[data-baseweb="tab"]:nth-of-type({i})[aria-selected="true"] {{
-        background: color-mix(in srgb, {boja} 16%, transparent);
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, {boja} 35%, transparent);
-    }}
-    div[data-testid="stTabs"] button[data-baseweb="tab"]:nth-of-type({i})[aria-selected="true"] p {{
-        color: {boja} !important;
-    }}""")
-    return "\n".join(pravila)
 
 
 # Glavni stil. Namjerno NIJE f-string (CSS je pun vitičastih zagrada) — sve
 # promjenjivo ulazi kroz var(--fin-*) iz `_tokeni_css`.
 _STIL = """
-    /* Inter za tekst, DM Mono za brojeve — kao u Figma verziji. */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
-
-    /* --- Prostor stranice ------------------------------------------------ */
-    .block-container {
-        padding-top: 2.2rem !important;
-        /* + donji „notch” na iPhoneu, kao `safe-area-inset-bottom` u dizajnu */
-        padding-bottom: calc(3rem + env(safe-area-inset-bottom, 0px)) !important;
-        max-width: 1400px;
-    }
-    /* Zbijeniji okomiti ritam — dizajn je gušći od Streamlitovog zadanog. */
-    div[data-testid="stVerticalBlock"] { gap: 0.85rem; }
+    /* --- Prozor: Mica + zaobljeni sloj sadržaja uz navigaciju ------------ */
+    .stApp { background: var(--fin-mica); }
     header[data-testid="stHeader"] { background: transparent; }
-
-    /* --- Marka („Liquidity” iz dizajna) --------------------------------- */
-    .fin-marka {
-        display: flex; align-items: center; gap: 10px; margin-bottom: 1.1rem;
+    section[data-testid="stMain"] {
+        background: var(--fin-sloj);
+        border-top-left-radius: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        border-left: 1px solid rgba(255, 255, 255, 0.05);
     }
-    .fin-marka-znak {
-        width: 28px; height: 28px; border-radius: 8px;
+    .block-container {
+        max-width: 1100px;
+        padding: 2.4rem 2.5rem calc(3rem + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    div[data-testid="stVerticalBlock"] { gap: 0.5rem; }
+    body, .stApp { font-variant-numeric: tabular-nums; }
+
+    /* --- Navigacija (NavigationView) ------------------------------------- */
+    section[data-testid="stSidebar"] { border-right: none !important; }
+    section[data-testid="stSidebar"] > div { background: var(--fin-mica); }
+    [data-testid="stSidebarNavItems"] { padding-top: 0.25rem; }
+    a[data-testid="stSidebarNavLink"] {
+        position: relative; min-height: 36px; border-radius: 4px;
+        margin: 2px 0; padding-left: 14px !important;
+        transition: background 0.1s ease;
+    }
+    a[data-testid="stSidebarNavLink"]:hover { background: rgba(255, 255, 255, 0.06); }
+    a[data-testid="stSidebarNavLink"] span { color: var(--fin-tekst) !important; font-size: 14px; }
+    a[data-testid="stSidebarNavLink"][aria-current="page"] { background: rgba(255, 255, 255, 0.06); }
+    /* Okomita „pilula” naglaska uz odabranu stavku, kao u WinUI-ju. */
+    a[data-testid="stSidebarNavLink"][aria-current="page"]::before {
+        content: ""; position: absolute; left: 0; top: 50%;
+        width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
         background: var(--fin-naglasak);
-        display: flex; align-items: center; justify-content: center;
-        font-size: 14px; line-height: 1; flex-shrink: 0;
     }
-    .fin-marka-ime {
-        font-size: 15px; font-weight: 600; color: var(--fin-tekst);
-        letter-spacing: -0.01em;
+    a[data-testid="stSidebarNavLink"][aria-current="page"] span { font-weight: 600; }
+    [data-testid="stNavSectionHeader"] {
+        color: var(--fin-tekst-3) !important; font-size: 12px !important;
+        font-weight: 600 !important; text-transform: none !important;
+        letter-spacing: 0 !important; padding-left: 14px;
     }
+    [data-testid="stSidebarNavSeparator"] { border-color: var(--fin-razdjelnik); }
 
-    /* --- Naslov odjeljka (mala razmaknuta verzalna oznaka) --------------- */
+    /* --- Tipografija stranice -------------------------------------------- */
+    .fin-naslov {
+        font-size: 28px; font-weight: 600; line-height: 36px;
+        color: var(--fin-tekst); margin: 0 0 0.9rem 0; letter-spacing: 0;
+    }
+    /* Naslov skupine kartica („Body Strong”). */
     .fin-oznaka {
-        font-size: 11px; font-weight: 500; color: var(--fin-priguseno);
-        text-transform: uppercase; letter-spacing: 0.12em;
-        margin: 0 0 0.7rem 0; display: flex; align-items: center; gap: 7px;
+        font-size: 14px; font-weight: 600; color: var(--fin-tekst);
+        margin: 1.4rem 0 0.25rem 0;
+    }
+    .fin-mali { font-size: 12px; color: var(--fin-tekst-2); margin: 0; }
+
+    /* --- Ikone ----------------------------------------------------------- */
+    .fin-ik {
+        font-family: 'Material Symbols Rounded'; font-weight: 300;
+        font-style: normal; font-size: 20px; line-height: 1;
+        letter-spacing: normal; text-transform: none; white-space: nowrap;
+        direction: ltr; -webkit-font-smoothing: antialiased;
+        font-feature-settings: 'liga'; display: inline-block;
+        color: var(--fin-tekst);
     }
 
-    /* --- Hero traka ----------------------------------------------------- */
-    .fin-hero {
-        display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem;
-        padding: 0 0 1.15rem 0; margin-bottom: 1.1rem;
-        border-bottom: 1px solid var(--fin-rub-blagi);
-    }
-    .fin-hero-glavno { font-size: 34px; font-weight: 600; line-height: 1;
-        letter-spacing: -0.02em; color: var(--fin-tekst); }
-    .fin-hero-drugo { font-size: 20px; font-weight: 600; line-height: 1;
-        letter-spacing: -0.01em; color: var(--fin-tekst); }
-    .fin-hero-desno {
-        display: flex; align-items: center; gap: 1rem;
-        padding-left: 1.5rem; border-left: 1px solid var(--fin-rub);
-    }
-    @media (max-width: 640px) {
-        .fin-hero-glavno { font-size: 27px; }
-        .fin-hero-desno { padding-left: 0; border-left: none; }
-    }
-
-    /* --- Kartica i redovi ----------------------------------------------- */
+    /* --- Kartica-postavka (SettingsCard) -------------------------------- */
+    .fin-grupa { display: flex; flex-direction: column; gap: 4px; }
     .fin-kartica {
-        background: var(--fin-kartica); border: 1px solid var(--fin-rub);
-        border-radius: 12px; overflow: hidden;
+        display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px;
+        min-height: 68px; box-sizing: border-box; padding: 12px 16px;
+        background: var(--fin-kartica); border: 1px solid var(--fin-rub-kartice);
+        border-radius: 4px; transition: background 0.1s ease;
     }
-    .fin-kartica-tijelo { padding: 1rem 1.05rem; }
-    .fin-red {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: 12px; padding: 0.85rem 1.05rem;
-        border-bottom: 1px solid var(--fin-rub-blagi);
+    .fin-kartica:hover { background: var(--fin-kartica-hover); }
+    .fin-kartica-ikona {
+        width: 32px; display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
     }
-    .fin-red:last-child { border-bottom: none; }
-    .fin-red-lijevo { display: flex; align-items: center; gap: 12px; min-width: 0; }
-    .fin-ime { font-size: 14px; color: var(--fin-tekst); overflow: hidden;
-        text-overflow: ellipsis; white-space: nowrap; }
+    .fin-kartica-tekst { flex: 1 1 180px; min-width: 0; }
+    .fin-kartica-naslov {
+        font-size: 14px; color: var(--fin-tekst); line-height: 20px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .fin-kartica-opis { font-size: 12px; color: var(--fin-tekst-2); line-height: 16px; }
+    .fin-kartica-desno {
+        display: flex; align-items: center; gap: 12px; margin-left: auto;
+        flex-wrap: wrap; justify-content: flex-end;
+    }
+    /* Tijelo kartice ispod zaglavlja (npr. traka napretka cilja). */
+    .fin-kartica-tijelo {
+        flex-basis: 100%; margin: 8px -16px -12px; padding: 12px 16px 14px 64px;
+        border-top: 1px solid var(--fin-razdjelnik);
+    }
 
-    /* Kružić s inicijalima računa (zamjena za ikone banaka iz dizajna). */
+    /* Pločica s inicijalima računa. */
     .fin-znak {
-        width: 32px; height: 32px; border-radius: 999px; flex-shrink: 0;
+        width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0;
         display: flex; align-items: center; justify-content: center;
-        font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
-        border: 1px solid var(--fin-rub);
+        font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
     }
 
-    /* --- Brojevi -------------------------------------------------------- */
-    .fin-broj {
-        font-family: 'DM Mono', ui-monospace, monospace;
-        font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 500;
-        color: var(--fin-tekst); white-space: nowrap;
+    /* --- Hero: zaglavlje stranice s velikom pločicom (kao PowerToys) ----- */
+    .fin-hero {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px;
+        padding: 20px; border-radius: 8px;
+        background: var(--fin-kartica); border: 1px solid var(--fin-rub-kartice);
     }
+    .fin-hero-plocica {
+        width: 64px; height: 64px; border-radius: 12px; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #60cdff, #005fb8);
+    }
+    .fin-hero-plocica .fin-ik { font-size: 34px; color: #fff; }
+    .fin-hero-oznaka { font-size: 12px; color: var(--fin-tekst-2); margin: 0 0 2px 0; }
+    .fin-hero-glavno { font-size: 32px; font-weight: 600; line-height: 40px;
+        color: var(--fin-tekst); margin: 0; }
+    .fin-hero-drugo { font-size: 20px; font-weight: 600; line-height: 28px;
+        color: var(--fin-tekst); margin: 0; }
+    .fin-hero-desno {
+        display: flex; align-items: center; gap: 16px; margin-left: auto;
+        padding-left: 24px; border-left: 1px solid var(--fin-razdjelnik);
+    }
+
+    /* --- Brojevi i značke ------------------------------------------------ */
+    .fin-broj { font-size: 14px; color: var(--fin-tekst); white-space: nowrap; }
     .fin-broj.fin-manjak { color: var(--fin-crvena); }
-    .fin-mali { font-size: 12px; color: var(--fin-priguseno); }
-
-    /* Zbirni red na dnu kartice — zelen kad je pozitivan, crven kad nije. */
-    .fin-zbroj {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: 12px; padding: 0.85rem 1.05rem; font-weight: 600; font-size: 14px;
-        background: rgba(16, 185, 129, 0.08); border-top: 1px solid rgba(16, 185, 129, 0.2);
-        color: var(--fin-zelena);
-    }
-    .fin-zbroj.fin-manjak {
-        background: rgba(239, 68, 68, 0.08); border-top-color: rgba(239, 68, 68, 0.2);
-        color: var(--fin-crvena);
-    }
-    .fin-zbroj .fin-broj { color: inherit; font-weight: 600; }
-
-    /* --- Značke (tip stavke, razlika) ----------------------------------- */
     .fin-znacka {
-        display: inline-block; padding: 2px 9px; border-radius: 999px;
-        font-size: 11px; font-weight: 500; white-space: nowrap;
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 2px 8px; border-radius: 4px;
+        font-size: 12px; white-space: nowrap; line-height: 16px;
     }
-    .fin-znacka-prihod { background: rgba(16, 185, 129, 0.1); color: var(--fin-zelena); }
-    .fin-znacka-rashod { background: rgba(239, 68, 68, 0.1); color: var(--fin-crvena); }
-    .fin-znacka-stanje { background: rgba(255, 255, 255, 0.06); color: var(--fin-priguseno); }
-    .fin-znacka-rast { background: rgba(16, 185, 129, 0.1); color: var(--fin-zelena); }
-    .fin-znacka-pad { background: rgba(251, 146, 60, 0.12); color: #fb923c; }
+    .fin-znacka-prihod, .fin-znacka-rast { background: rgba(108, 203, 95, 0.14); color: var(--fin-zelena); }
+    .fin-znacka-rashod, .fin-znacka-pad { background: rgba(255, 153, 164, 0.14); color: var(--fin-crvena); }
+    .fin-znacka-stanje { background: rgba(255, 255, 255, 0.08); color: var(--fin-tekst-2); }
+    .fin-znacka-naglasak { background: var(--fin-naglasak-ploha); color: var(--fin-naglasak); }
 
-    /* --- Cilj: traka napretka ------------------------------------------- */
+    /* --- Cilj: mjerila i traka napretka (ProgressBar) ------------------- */
+    .fin-mjerila { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-bottom: 12px; }
+    .fin-mjerilo-oznaka { font-size: 12px; color: var(--fin-tekst-3); margin: 0; }
     .fin-traka {
-        width: 100%; height: 6px; border-radius: 999px; overflow: hidden;
-        background: rgba(255, 255, 255, 0.08); margin-top: 0.15rem;
+        width: 100%; height: 4px; border-radius: 2px; overflow: hidden;
+        background: rgba(255, 255, 255, 0.12);
     }
-    .fin-traka > div { height: 100%; border-radius: 999px; }
-    .fin-mjerila { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 0.85rem 0; }
-    .fin-mjerilo-oznaka {
-        font-size: 11px; color: var(--fin-priguseno); text-transform: uppercase;
-        letter-spacing: 0.08em; margin-bottom: 2px;
-    }
+    .fin-traka > div { height: 100%; border-radius: 2px; }
 
-    /* --- Tablica sljedivosti -------------------------------------------- */
+    /* --- Tablica sljedivosti (DataGrid) --------------------------------- */
     .fin-tablica-okvir {
-        overflow-x: auto; border: 1px solid var(--fin-rub);
-        border-radius: 12px; background: var(--fin-kartica);
+        overflow-x: auto; border: 1px solid var(--fin-rub-kartice);
+        border-radius: 4px; background: var(--fin-kartica);
     }
     .fin-tablica { width: 100%; border-collapse: collapse; font-size: 13px; }
     .fin-tablica th {
-        position: sticky; top: 0; background: var(--fin-izbornik);
-        padding: 0.7rem 0.85rem; text-align: left; white-space: nowrap;
-        font-size: 11px; font-weight: 500; color: var(--fin-priguseno);
-        text-transform: uppercase; letter-spacing: 0.07em;
-        border-bottom: 1px solid var(--fin-rub);
+        position: sticky; top: 0; background: var(--fin-kartica);
+        padding: 10px 12px; text-align: left; white-space: nowrap;
+        font-size: 12px; font-weight: 600; color: var(--fin-tekst-2);
+        border-bottom: 1px solid var(--fin-razdjelnik);
     }
+    /* Streamlit tablicama u markdownu crta okomite crte — DataGrid ih nema. */
+    .fin-tablica th, .fin-tablica td { border-left: none !important; border-right: none !important; border-top: none !important; }
     .fin-tablica th.fin-desno, .fin-tablica td.fin-desno { text-align: right; }
     .fin-tablica td {
-        padding: 0.55rem 0.85rem; border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        color: var(--fin-tekst); vertical-align: middle;
+        padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        color: var(--fin-tekst); vertical-align: middle; white-space: nowrap;
     }
     .fin-tablica tr:last-child td { border-bottom: none; }
-    .fin-tablica tr.fin-parni td { background: rgba(255, 255, 255, 0.02); }
-    /* Buduće stavke su prigušene — isto kao `opacity-60` u dizajnu. */
-    .fin-tablica tr.fin-buduca td { opacity: 0.6; }
-    .fin-tablica td.fin-tudji { color: #555; }
-    .fin-tablica td.fin-ukupno { color: var(--fin-zelena); font-weight: 600; }
-    .fin-stupac-racun {
-        display: inline-block; padding: 1px 7px; border-radius: 6px;
-        background: rgba(201, 100, 66, 0.08); color: rgba(201, 100, 66, 0.85);
-        border: 1px solid rgba(201, 100, 66, 0.2);
-    }
-    .fin-stupac-ukupno {
-        display: inline-block; padding: 1px 7px; border-radius: 6px;
-        background: rgba(16, 185, 129, 0.1); color: var(--fin-zelena);
-        border: 1px solid rgba(16, 185, 129, 0.25);
-    }
+    .fin-tablica tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
+    .fin-tablica tr.fin-buduca td { opacity: 0.55; }
+    .fin-tablica td.fin-tudji { color: var(--fin-tekst-3); }
+    .fin-tablica td.fin-ukupno { color: var(--fin-naglasak); font-weight: 600; }
 
-    /* --- Tabovi --------------------------------------------------------- */
-    div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
-        gap: 6px; border-bottom: 1px solid var(--fin-rub-blagi);
-        padding-bottom: 0.6rem; margin-bottom: 0.4rem;
+    /* --- Streamlit widgeti u Fluent ruhu -------------------------------- */
+    /* Primarni (AccentButton): naglasak s tamnim tekstom, kao u WinUI-ju. */
+    button[kind="primary"], button[kind="primaryFormSubmit"] {
+        background: var(--fin-naglasak) !important; border-color: var(--fin-naglasak) !important;
+        color: #000 !important;
     }
-    div[data-testid="stTabs"] button[data-baseweb="tab"] {
-        flex: 1 1 0; height: auto; min-height: 0;
-        padding: 0.6rem 0.9rem; border-radius: 10px;
-        background: rgba(255, 255, 255, 0.03);
-        transition: background 0.15s ease, box-shadow 0.15s ease;
+    button[kind="primary"] *, button[kind="primaryFormSubmit"] * { color: #000 !important; }
+    button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover { filter: brightness(0.92); }
+    button[kind="secondary"], button[kind="secondaryFormSubmit"] {
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
     }
-    div[data-testid="stTabs"] button[data-baseweb="tab"] p {
-        font-size: 13.5px !important; font-weight: 500 !important;
-        color: var(--fin-priguseno) !important;
-    }
-    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
-        background: rgba(255, 255, 255, 0.06);
-    }
-    /* Zadana crvena podvlaka bi se borila s bojama pilula. */
-    div[data-testid="stTabs"] div[data-baseweb="tab-highlight"],
-    div[data-testid="stTabs"] div[data-baseweb="tab-border"] { display: none !important; }
-    @media (max-width: 640px) {
-        /* Četiri taba u redu su preuska → 2×2. */
-        div[data-testid="stTabs"] div[data-baseweb="tab-list"] { flex-wrap: wrap !important; }
-        div[data-testid="stTabs"] button[data-baseweb="tab"] { flex: 1 1 44% !important; }
-        .block-container { padding-left: 0.9rem !important; padding-right: 0.9rem !important; }
-    }
+    button[kind="secondary"]:hover { background: rgba(255, 255, 255, 0.083) !important; }
 
-    /* --- Streamlit widgeti: uklopi u dizajn ----------------------------- */
+    /* Expander kao SettingsExpander. */
     div[data-testid="stExpander"] details {
-        background: var(--fin-kartica); border: 1px solid var(--fin-rub);
-        border-radius: 12px;
+        background: var(--fin-kartica); border: 1px solid var(--fin-rub-kartice);
+        border-radius: 4px;
     }
-    div[data-testid="stExpander"] summary { font-size: 14px; }
+    div[data-testid="stExpander"] summary { min-height: 52px; padding: 0 16px; font-size: 14px; }
+    div[data-testid="stExpander"] summary:hover { background: var(--fin-kartica-hover); }
+
+    /* Kontejneri s ključem „kartica_*” = kartica-postavka s pravim widgetima. */
+    div[class*="st-key-kartica_"] {
+        background: var(--fin-kartica); border: 1px solid var(--fin-rub-kartice);
+        border-radius: 4px; padding: 14px 16px;
+    }
+
+    /* Popup (ContentDialog). */
+    div[role="dialog"] {
+        background: var(--fin-kartica) !important; border-radius: 8px !important;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* Oznake u višestrukom odabiru — neutralne, kao Fluent „TokenItem”. */
+    span[data-baseweb="tag"] {
+        background: rgba(255, 255, 255, 0.08) !important; color: var(--fin-tekst) !important;
+    }
+    span[data-baseweb="tag"] * { color: var(--fin-tekst) !important; }
+
+    /* Gumb za otvaranje navigacije: ☰ (PaneToggleButton) umjesto „»”. */
+    [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {
+        font-size: 0 !important;
+    }
+    [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"]::after {
+        content: "menu"; font-family: 'Material Symbols Rounded';
+        font-size: 24px; font-feature-settings: 'liga'; color: var(--fin-tekst);
+    }
+
     div[data-testid="stElementToolbarButtonContainer"] { display: none !important; }
-    /* Tanki „scrollbar” kao u dizajnu. */
-    * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
-    *::-webkit-scrollbar { width: 4px; height: 4px; }
-    *::-webkit-scrollbar-track { background: transparent; }
-    *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.25) transparent; }
+
+    /* --- Telefon --------------------------------------------------------- */
+    @media (max-width: 640px) {
+        .block-container { padding: 3.4rem 0.9rem calc(2rem + env(safe-area-inset-bottom, 0px)) !important; }
+        section[data-testid="stMain"] { border-radius: 0; border: none; }
+        .fin-naslov { font-size: 24px; line-height: 32px; }
+        .fin-hero { padding: 16px; }
+        .fin-hero-plocica { width: 48px; height: 48px; border-radius: 10px; }
+        .fin-hero-plocica .fin-ik { font-size: 26px; }
+        .fin-hero-glavno { font-size: 26px; line-height: 32px; }
+        .fin-hero-desno { margin-left: 0; padding-left: 0; border-left: none;
+            flex-basis: 100%; }
+        .fin-kartica-tijelo { padding-left: 16px; }
+        /* Traka naredbi: „Spremi” preko cijele širine, ostalo dva u redu
+           (Streamlit bi inače svaki stupac složio u zaseban red). */
+        .st-key-traka_naredbi div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important; gap: 0.5rem !important;
+        }
+        .st-key-traka_naredbi div[data-testid="stColumn"] {
+            flex: 1 1 calc(50% - 0.25rem) !important;
+            min-width: calc(50% - 0.25rem) !important;
+        }
+        .st-key-traka_naredbi div[data-testid="stColumn"]:first-child {
+            flex-basis: 100% !important;
+        }
+    }
 """
 
 
 def ubaci_css():
     """Ubaci stil — pozvati JEDNOM, na početku skripte."""
-    st.markdown(
-        f"<style>{_tokeni_css()}{_STIL}{_css_tabova()}</style>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"<style>{_tokeni_css()}{_STIL}</style>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -366,19 +395,67 @@ def crtaj(html_kod):
     st.markdown(html_kod, unsafe_allow_html=True)
 
 
-def marka(ime="Liquidity"):
-    """Zaglavlje s markom iz dizajna."""
-    return (
-        '<div class="fin-marka">'
-        '<div class="fin-marka-znak">💶</div>'
-        f'<div class="fin-marka-ime">{_e(ime)}</div>'
-        "</div>"
-    )
+def ikona(ime, boja=None, velicina=None):
+    """Material Symbols znak (ime iz IKONE) kao Fluent glif."""
+    stil = ";".join(filter(None, [
+        f"color:{boja}" if boja else "",
+        f"font-size:{velicina}px" if velicina else "",
+    ]))
+    return f'<span class="fin-ik" style="{stil}">{ime}</span>'
+
+
+def naslov(tekst):
+    """Naslov stranice („Title”, 28 px) — kao naziv alata u PowerToys."""
+    return f'<div class="fin-naslov">{_e(tekst)}</div>'
 
 
 def oznaka(tekst):
-    """Mala razmaknuta verzalna oznaka odjeljka."""
-    return f'<p class="fin-oznaka">{_e(tekst)}</p>'
+    """Naslov skupine kartica."""
+    return f'<div class="fin-oznaka">{_e(tekst)}</div>'
+
+
+def kartica(ikona_html, naslov_teksta, opis="", desno="", tijelo=""):
+    """
+    Kartica-postavka (SettingsCard): ikona, naslov i opis lijevo, vrijednost
+    desno; `tijelo` (neobavezno) ide ispod, odvojeno crtom. Na uskom ekranu
+    desni dio sam prelazi ispod teksta.
+    """
+    opis_html = f'<div class="fin-kartica-opis">{opis}</div>' if opis else ""
+    tijelo_html = f'<div class="fin-kartica-tijelo">{tijelo}</div>' if tijelo else ""
+    return (
+        '<div class="fin-kartica">'
+        f'<div class="fin-kartica-ikona">{ikona_html}</div>'
+        '<div class="fin-kartica-tekst">'
+        f'<div class="fin-kartica-naslov">{_e(naslov_teksta)}</div>{opis_html}</div>'
+        f'<div class="fin-kartica-desno">{desno}</div>'
+        f"{tijelo_html}</div>"
+    )
+
+
+def grupa(kartice):
+    """Niz kartica razmaknutih 4 px — jedan blok, bez Streamlitovih praznina."""
+    return f'<div class="fin-grupa">{"".join(kartice)}</div>'
+
+
+def kartica_s_widgetom(kljuc, ikona_ime, naslov_teksta, opis=""):
+    """
+    Kartica-postavka kojoj je desna strana pravi Streamlit widget (gumb,
+    izbornik…). Vraća stupac u koji pozivatelj crta widget.
+
+    Okvir dolazi iz CSS-a za kontejnere s ključem „kartica_*”.
+    """
+    with st.container(key=f"kartica_{kljuc}"):
+        lijevo, desno = st.columns([2.6, 1], vertical_alignment="center")
+        lijevo.markdown(
+            '<div class="fin-kartica" style="background:none;border:none;'
+            'padding:0;min-height:0">'
+            f'<div class="fin-kartica-ikona">{ikona(ikona_ime)}</div>'
+            '<div class="fin-kartica-tekst">'
+            f'<div class="fin-kartica-naslov">{_e(naslov_teksta)}</div>'
+            f'<div class="fin-kartica-opis">{_e(opis)}</div></div></div>',
+            unsafe_allow_html=True,
+        )
+    return desno
 
 
 def znacka_tipa(tip):
@@ -392,7 +469,7 @@ def znacka_tipa(tip):
 
 
 def znacka_razlike(razlika):
-    """Značka s promjenom u odnosu na danas (zelena za rast, narančasta za pad)."""
+    """Značka s promjenom u odnosu na danas (zelena za rast, crvena za pad)."""
     razred = "fin-znacka-rast" if razlika >= 0 else "fin-znacka-pad"
     return (
         f'<span class="fin-znacka {razred}">'
@@ -402,14 +479,16 @@ def znacka_razlike(razlika):
 
 def hero(ukupno_danas, datum_danas, projekcija=None, datum_projekcije=None):
     """
-    Hero traka: ukupno raspoloživo danas i (ako ima budućih stavki) projekcija
-    sa razlikom — kao `Hero.tsx` u Figma verziji.
+    Zaglavlje stranice: velika pločica, ukupno raspoloživo danas i (ako ima
+    budućih stavki) projekcija s razlikom — kao kartica s ilustracijom na vrhu
+    svake stranice PowerToys postavki.
     """
     dijelovi = [
         '<div class="fin-hero">',
+        f'<div class="fin-hero-plocica">{ikona("account_balance_wallet")}</div>',
         "<div>",
-        f'<p class="fin-oznaka">Ukupno danas · {_e(datum_danas)}</p>',
-        f'<p class="fin-hero-glavno">{eur(ukupno_danas)}</p>',
+        f'<div class="fin-hero-oznaka">Ukupno raspoloživo · {_e(datum_danas)}</div>',
+        f'<div class="fin-hero-glavno">{eur(ukupno_danas)}</div>',
         "</div>",
     ]
     if projekcija is not None:
@@ -417,8 +496,8 @@ def hero(ukupno_danas, datum_danas, projekcija=None, datum_projekcije=None):
         dijelovi += [
             '<div class="fin-hero-desno">',
             "<div>",
-            f'<p class="fin-oznaka">Projekcija · {_e(datum_projekcije)}</p>',
-            f'<p class="fin-hero-drugo">{eur(projekcija)}</p>',
+            f'<div class="fin-hero-oznaka">Projekcija · {_e(datum_projekcije)}</div>',
+            f'<div class="fin-hero-drugo">{eur(projekcija)}</div>',
             "</div>",
             znacka_razlike(razlika),
             "</div>",
@@ -427,8 +506,8 @@ def hero(ukupno_danas, datum_danas, projekcija=None, datum_projekcije=None):
     return "".join(dijelovi)
 
 
-def _znak_racuna(racun):
-    """Kružić s inicijalima u boji banke."""
+def znak_racuna(racun):
+    """Pločica s inicijalima u boji banke."""
     podloga, boja = boja_racuna(racun)
     return (
         f'<div class="fin-znak" style="background:{podloga};color:{boja}">'
@@ -436,33 +515,34 @@ def _znak_racuna(racun):
     )
 
 
-def kartica_stanja(racuni, stanja):
-    """
-    Kartica „stanja po računima” sa zbirnim redom na dnu — `Danas.tsx`.
+def _broj(vrijednost, jak=False):
+    manjak = " fin-manjak" if vrijednost < 0 else ""
+    tezina = ' style="font-weight:600"' if jak else ""
+    return f'<span class="fin-broj{manjak}"{tezina}>{eur(vrijednost)}</span>'
 
-    `stanja` je {račun: iznos} iz `logika.stanja_po_racunima`.
-    """
-    redovi = []
-    for r in racuni:
-        v = stanja.get(r, 0.0)
-        manjak = " fin-manjak" if v < 0 else ""
-        redovi.append(
-            '<div class="fin-red">'
-            f'<div class="fin-red-lijevo">{_znak_racuna(r)}'
-            f'<span class="fin-ime">{_e(r)}</span></div>'
-            f'<span class="fin-broj{manjak}">{eur(v)}</span>'
-            "</div>"
-        )
 
+def kartica_stanja(racuni, stanja, opisi=None):
+    """
+    Stanja po računima kao niz kartica-postavki + zbirna kartica na dnu.
+
+    `stanja` je {račun: iznos} iz `logika.stanja_po_racunima`; `opisi` je
+    neobavezan {račun: tekst} za sivi redak ispod naziva.
+    """
+    opisi = opisi or {}
+    kartice = [
+        kartica(znak_racuna(r), r, _e(opisi.get(r, "")), _broj(stanja.get(r, 0.0)))
+        for r in racuni
+    ]
     ukupno = sum(stanja.get(r, 0.0) for r in racuni)
-    manjak = " fin-manjak" if ukupno < 0 else ""
-    zbroj = (
-        f'<div class="fin-zbroj{manjak}">'
-        "<span>Ukupno raspoloživo</span>"
-        f'<span class="fin-broj">{eur(ukupno)}</span>'
-        "</div>"
+    kartice.append(
+        kartica(
+            ikona("savings", ZELENA if ukupno >= 0 else CRVENA),
+            "Ukupno raspoloživo",
+            f"Zbroj svih izvora ({len(racuni)})",
+            _broj(ukupno, jak=True),
+        )
     )
-    return f'<div class="fin-kartica">{"".join(redovi)}{zbroj}</div>'
+    return grupa(kartice)
 
 
 def _mjerilo(oznaka_teksta, vrijednost, boja=None):
@@ -470,15 +550,16 @@ def _mjerilo(oznaka_teksta, vrijednost, boja=None):
     stil = f' style="color:{boja}"' if boja else ""
     return (
         "<div>"
-        f'<p class="fin-mjerilo-oznaka">{_e(oznaka_teksta)}</p>'
+        f'<div class="fin-mjerilo-oznaka">{_e(oznaka_teksta)}</div>'
         f'<span class="fin-broj"{stil}>{vrijednost}</span>'
         "</div>"
     )
 
 
-def kartica_cilja(n, znak_statusa):
+def kartica_cilja(n, ikona_statusa, boja_statusa):
     """
-    Kartica jednog cilja — `GoalCard` iz Figma verzije.
+    Kartica jednog cilja: zaglavlje kao kartica-postavka, a ispod mjerila i
+    traka napretka.
 
     `n` je red iz `ciljevi.napredak` (Račun, Rok, Iznos, Projekcija, Razlika,
     Status, Dana, Postotak, Mjesecno, Napomena). Ovdje se NIŠTA ne računa.
@@ -486,31 +567,21 @@ def kartica_cilja(n, znak_statusa):
     dosegnut = n["Razlika"] >= 0
     boja_proj = ZELENA if dosegnut else CRVENA
 
-    napomena = (
-        f'<p class="fin-mali">{_e(n["Napomena"])}</p>' if n["Napomena"] else ""
-    )
-    zaglavlje = (
-        '<div style="display:flex;align-items:flex-start;'
-        'justify-content:space-between;gap:12px">'
-        '<div style="display:flex;align-items:center;gap:9px;min-width:0">'
-        f'<span style="font-size:15px">{znak_statusa}</span>'
-        "<div>"
-        f'<p style="font-size:14px;font-weight:500;color:{TEKST};margin:0">'
-        f'{_e(n["Račun"])}</p>{napomena}</div></div>'
-        f'<span class="fin-mali fin-broj" style="font-size:12px">{_e(n["Rok"])}</span>'
-        "</div>"
+    opis = f"Rok {_e(n['Rok'])}"
+    if n["Napomena"]:
+        opis += f" · {_e(n['Napomena'])}"
+    desno = (
+        f'<span class="fin-znacka" style="background:rgba(255,255,255,0.06);'
+        f'color:{boja_statusa}">{_e(str(n["Status"]).capitalize())}</span>'
     )
 
     mjerila = [
         _mjerilo("Cilj", eur(n["Iznos"])),
         _mjerilo("Projekcija", eur(n["Projekcija"]), boja_proj),
-        _mjerilo(
-            "Dana" if n["Dana"] >= 0 else "Prošlo",
-            str(abs(n["Dana"])),
-        ),
+        _mjerilo("Dana do roka" if n["Dana"] >= 0 else "Dana od roka", str(abs(n["Dana"]))),
     ]
     if not dosegnut and n["Mjesecno"]:
-        mjerila.append(_mjerilo("Nedostaje/mj", eur(n["Mjesecno"]), CRVENA))
+        mjerila.append(_mjerilo("Nedostaje mjesečno", eur(n["Mjesecno"]), CRVENA))
 
     # Traka napretka ima smisla samo za pozitivan cilj (kod „ne ispod −200 €”
     # postotak ne znači ništa) — isto pravilo kao u `ciljevi.napredak`.
@@ -521,35 +592,33 @@ def kartica_cilja(n, znak_statusa):
         traka = (
             f'<div class="fin-traka"><div style="width:{sirina:.1f}%;'
             f'background:{boja_trake}"></div></div>'
-            f'<p class="fin-mali" style="text-align:right;margin:4px 0 0 0">'
-            f'{n["Postotak"]:.1f}%</p>'
+            f'<div class="fin-mali" style="text-align:right;margin-top:4px">'
+            f'{n["Postotak"]:.1f} %</div>'
         )
 
-    return (
-        '<div class="fin-kartica"><div class="fin-kartica-tijelo">'
-        f'{zaglavlje}<div class="fin-mjerila">{"".join(mjerila)}</div>{traka}'
-        "</div></div>"
+    return kartica(
+        ikona(ikona_statusa, boja_statusa),
+        n["Račun"],
+        opis,
+        desno,
+        tijelo=f'<div class="fin-mjerila">{"".join(mjerila)}</div>{traka}',
     )
 
 
-def red_zbroja(naslov, vrijednost, razlika=None, boja=NAGLASAK):
-    """Istaknuti zbirni red (npr. „Ukupno raspoloživo” u projekciji)."""
+def red_zbroja(naslov_teksta, vrijednost, razlika=None):
+    """Istaknuta zbirna kartica (npr. „Ukupno raspoloživo” u projekciji)."""
     znak = znacka_razlike(razlika) if razlika is not None else ""
-    return (
-        f'<div class="fin-kartica" style="background:rgba(201,100,66,0.08);'
-        f'border-color:rgba(201,100,66,0.2)"><div class="fin-red" '
-        'style="border-bottom:none">'
-        f'<span style="font-size:14px;font-weight:600;color:{boja}">{_e(naslov)}</span>'
-        '<span style="display:flex;align-items:center;gap:12px">'
-        f'{znak}<span class="fin-broj" style="font-size:15px;font-weight:600;'
-        f'color:{boja}">{eur(vrijednost)}</span></span>'
-        "</div></div>"
+    return kartica(
+        ikona("savings", NAGLASAK),
+        naslov_teksta,
+        "Nakon svih unesenih budućih stavki",
+        f"{znak}{_broj(vrijednost, jak=True)}",
     )
 
 
 def tablica_sljedivosti(redovi, racuni, danas):
     """
-    Tablica revizijskog traga — `Detalji.tsx`.
+    Tablica revizijskog traga.
 
     `redovi` su iz `logika.preracunaj_tablicu`; sirove vrijednosti se čitaju iz
     ključa „Stavka” koji ta funkcija dodaje. Buduće stavke (datum > danas) su
@@ -563,30 +632,22 @@ def tablica_sljedivosti(redovi, racuni, danas):
         f'<th class="{"fin-desno" if desno else ""}">{tekst}</th>'
         for tekst, desno in STUPCI
     )
-    zaglavlje += "".join(
-        f'<th class="fin-desno"><span class="fin-stupac-racun">{_e(r)}</span></th>'
-        for r in racuni
-    )
+    zaglavlje += "".join(f'<th class="fin-desno">{_e(r)}</th>' for r in racuni)
     zaglavlje += (
-        '<th class="fin-desno"><span class="fin-stupac-ukupno">UKUPNO</span></th>'
+        f'<th class="fin-desno" style="color:{NAGLASAK}">Ukupno</th>'
     )
 
     tijelo = []
-    for i, red in enumerate(redovi):
+    for red in redovi:
         s = red["Stavka"]
-        razredi = " ".join(
-            filter(None, [
-                "fin-parni" if i % 2 else "",
-                "fin-buduca" if _datum(red["Datum"]) > danas else "",
-            ])
-        )
+        razred = "fin-buduca" if _datum(red["Datum"]) > danas else ""
         boja_iznosa = {
             logika.PRIHOD: ZELENA,
             logika.RASHOD: CRVENA,
-        }.get(s["Tip"], PRIGUSENO)
+        }.get(s["Tip"], TEKST_2)
 
         celije = [
-            f'<td class="fin-broj fin-mali">{_e(red["Datum"])}</td>',
+            f'<td class="fin-mali">{_e(red["Datum"])}</td>',
             f'<td>{_e(red["Opis transakcije"])}</td>',
             f"<td>{znacka_tipa(s['Tip'])}</td>",
             f'<td class="fin-desno fin-broj" style="color:{boja_iznosa}">'
@@ -602,7 +663,7 @@ def tablica_sljedivosti(redovi, racuni, danas):
             f'<td class="fin-desno fin-broj fin-ukupno">'
             f'{_e(red["RASPOLOŽIV IZNOS"])}</td>'
         )
-        tijelo.append(f'<tr class="{razredi}">{"".join(celije)}</tr>')
+        tijelo.append(f'<tr class="{razred}">{"".join(celije)}</tr>')
 
     return (
         '<div class="fin-tablica-okvir"><table class="fin-tablica">'
